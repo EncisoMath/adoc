@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ff006e" />
+  <title>Asistencia GGM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="appShell" class="app-shell booting">
+    <section id="loginView" class="login-view hidden">
+      <div class="login-card ps-card">
+        <div class="brand-row">
+          <div class="brand-mark">GGM</div>
+          <div>
+            <h1>Asistencia GGM</h1>
+            <p>Ingreso inicial del dispositivo</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Correo</span>
+          <input id="loginEmail" type="email" autocomplete="email" placeholder="correo@ejemplo.com" />
+        </label>
+
+        <label class="field">
+          <span>Contraseña</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </label>
+
+        <button id="loginBtn" class="primary-btn full">Entrar</button>
+        <button id="signupBtn" class="ghost-btn full">Crear usuario inicial</button>
+        <p class="muted tiny">La sesión queda guardada en este dispositivo. Solo se vuelve a pedir si se borran los datos del navegador.</p>
+        <div id="loginMsg" class="inline-alert hidden"></div>
+      </div>
+    </section>
+
+    <section id="mainView" class="main-view hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Asistencia GGM</p>
+          <h1 id="topTitle">Hoy</h1>
+        </div>
+        <div class="top-actions">
+          <button id="syncBtn" class="icon-btn" title="Sincronizar">↻</button>
+          <button id="logoutBtn" class="icon-btn" title="Cerrar sesión">⎋</button>
+        </div>
+      </header>
+
+      <main id="content" class="content">
+        <section id="tabHoy" class="tab-panel active" data-title="Hoy"></section>
+        <section id="tabCalendario" class="tab-panel" data-title="Calendario"></section>
+        <section id="tabDocentes" class="tab-panel" data-title="Docentes"></section>
+        <section id="tabPdf" class="tab-panel" data-title="PDF"></section>
+        <section id="tabAjustes" class="tab-panel" data-title="Ajustes"></section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Pestañas principales">
+        <button class="nav-item active" data-tab="tabHoy"><span>☀</span><b>Hoy</b></button>
+        <button class="nav-item" data-tab="tabCalendario"><span>▦</span><b>Calendario</b></button>
+        <button class="nav-item" data-tab="tabDocentes"><span>👥</span><b>Docentes</b></button>
+        <button class="nav-item" data-tab="tabPdf"><span>▤</span><b>PDF</b></button>
+        <button class="nav-item" data-tab="tabAjustes"><span>⚙</span><b>Ajustes</b></button>
+      </nav>
+    </section>
+  </div>
+
+  <dialog id="modal" class="modal">
+    <form method="dialog" class="modal-box ps-card">
+      <button class="modal-close" value="cancel">×</button>
+      <div id="modalContent"></div>
+    </form>
+  </dialog>
+
+  <div id="toastRoot" class="toast-root"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/localdb.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/pdf.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
