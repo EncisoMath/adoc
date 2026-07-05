@@ -12,6 +12,7 @@
     recipients: [],
     currentTab: 'tabHoy',
     viewDate: new Date(),
+    pdfDate: new Date(),
     selectedDate: new Date().toISOString().slice(0, 10),
     weather: null,
     recognition: null
@@ -301,15 +302,15 @@
     return '🌤️';
   }
 
-  function monthRecords() {
-    const y = state.viewDate.getFullYear();
-    const m = state.viewDate.getMonth();
+  function monthRecords(date = state.viewDate) {
+    const y = date.getFullYear();
+    const m = date.getMonth();
     return state.records.filter(r => !r.deleted_at && isSameMonth(r.date, y, m));
   }
 
-  function monthDays() {
-    const y = state.viewDate.getFullYear();
-    const m = state.viewDate.getMonth();
+  function monthDays(date = state.viewDate) {
+    const y = date.getFullYear();
+    const m = date.getMonth();
     return state.days.filter(d => isSameMonth(d.date, y, m));
   }
 
@@ -331,9 +332,9 @@
     return state.types.find(t => t.code === code);
   }
 
-  function computeStats() {
-    const records = monthRecords();
-    const days = monthDays();
+  function computeStats(date = state.viewDate) {
+    const records = monthRecords(date);
+    const days = monthDays(date);
     const byTeacher = new Map();
     const byType = new Map();
     records.forEach(r => {
@@ -343,7 +344,7 @@
     const topTeacherEntry = [...byTeacher.entries()].sort((a, b) => b[1] - a[1])[0];
     const topTypeEntry = [...byType.entries()].sort((a, b) => b[1] - a[1])[0];
     const institutionalDays = days.filter(d => d.status === 'institucional').length;
-    const pendingDays = pendingSchoolDays().length;
+    const pendingDays = pendingSchoolDays(date).length;
     return {
       total: records.length,
       institutionalDays,
@@ -355,10 +356,13 @@
     };
   }
 
-  function pendingSchoolDays() {
-    const y = state.viewDate.getFullYear();
-    const m = state.viewDate.getMonth();
+  function pendingSchoolDays(date = state.viewDate) {
+    const y = date.getFullYear();
+    const m = date.getMonth();
     const today = new Date();
+    const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const targetMonthStart = new Date(y, m, 1);
+    if (targetMonthStart > currentMonthStart) return [];
     const limit = today.getFullYear() === y && today.getMonth() === m ? today.getDate() : new Date(y, m + 1, 0).getDate();
     const dayMap = new Map(state.days.map(d => [d.date, d]));
     const recordDates = new Set(state.records.filter(r => !r.deleted_at && isSameMonth(r.date, y, m)).map(r => r.date));
@@ -397,26 +401,21 @@
         <button class="secondary-btn" id="markNoNewsTodayBtn">Marcar sin novedades</button>
       </div>
 
-      <div class="grid three">
+      <div class="grid three summary-three">
         <div class="stat-card"><small>Inasistencias del mes</small><strong>${stats.total}</strong><span>${MONTHS[state.viewDate.getMonth()]} ${state.viewDate.getFullYear()}</span></div>
         <div class="stat-card"><small>Días institucionales</small><strong>${stats.institutionalDays}</strong><span>Paro, asamblea, reunión, etc.</span></div>
         <div class="stat-card"><small>Días pendientes</small><strong>${stats.pendingDays}</strong><span>Por confirmar</span></div>
       </div>
 
-      <div class="grid two" style="margin-top:12px;">
-        <div class="panel">
-          <h3>Docente con más novedades</h3>
-          <p class="muted">${escapeHtml(stats.topTeacher)}</p>
-        </div>
-        <div class="panel">
-          <h3>Tipo más frecuente</h3>
-          <p class="muted">${escapeHtml(stats.topType)}</p>
-        </div>
+      <div class="panel" style="margin-top:12px;">
+        <h3>Docente con más novedades</h3>
+        <p class="muted">${escapeHtml(stats.topTeacher)}</p>
       </div>
 
       <div class="panel" style="margin-top:12px;">
-        <h3>Gráfico por tipo</h3>
-        ${renderTypeBars(stats.byType)}
+        <h3>Inasistencias por día</h3>
+        <p class="tiny muted">Eje X: días del mes · Eje Y: cantidad de docentes con novedad.</p>
+        ${renderDailyAbsenceChart(state.viewDate)}
       </div>
     `;
     $('#todayRegisterBtn').addEventListener('click', () => openDayModal(today));
@@ -434,6 +433,34 @@
     }).join('')}</div>`;
   }
 
+
+  function renderDailyAbsenceChart(date = state.viewDate) {
+    const y = date.getFullYear();
+    const m = date.getMonth();
+    const last = new Date(y, m + 1, 0).getDate();
+    const byDay = new Map();
+    state.records.filter(r => !r.deleted_at && isSameMonth(r.date, y, m)).forEach(r => {
+      if (!byDay.has(r.date)) byDay.set(r.date, new Set());
+      byDay.get(r.date).add(r.teacher_id);
+    });
+    const values = Array.from({ length: last }, (_, i) => {
+      const iso = new Date(y, m, i + 1).toISOString().slice(0, 10);
+      return byDay.get(iso)?.size || 0;
+    });
+    const max = Math.max(1, ...values);
+    const hasData = values.some(v => v > 0);
+    if (!hasData) return '<p class="muted">Todavía no hay registros este mes.</p>';
+    return `<div class="daily-chart" role="img" aria-label="Docentes ausentes por día del mes">
+      <div class="daily-axis-y"><span>${max}</span><span>0</span></div>
+      <div class="daily-bars">
+        ${values.map((value, i) => {
+          const h = Math.max(value ? 10 : 0, Math.round((value / max) * 100));
+          return `<div class="daily-bar-wrap" title="Día ${i + 1}: ${value} docente${value === 1 ? '' : 's'}"><div class="daily-bar" style="height:${h}%"><span>${value || ''}</span></div><small>${i + 1}</small></div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
   function renderCalendario() {
     const year = state.viewDate.getFullYear();
     const month = state.viewDate.getMonth();
@@ -445,24 +472,19 @@
         <h2>${escapeHtml(title)}</h2>
         <button class="icon-btn" id="nextMonth">›</button>
       </div>
-      <div class="grid three" style="margin-bottom:12px;">
-        <div class="stat-card"><small>Registros</small><strong>${stats.total}</strong></div>
-        <div class="stat-card"><small>Institucionales</small><strong>${stats.institutionalDays}</strong></div>
-        <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
-      </div>
       <div class="calendar-grid">
         ${['D','L','M','M','J','V','S'].map(d => `<div class="weekday">${d}</div>`).join('')}
         ${calendarCells(year, month)}
       </div>
-      <div class="panel" style="margin-top:12px;">
-        <h3>Días pendientes</h3>
-        ${renderPendingList()}
+      <div class="grid three summary-three" style="margin-top:12px;">
+        <div class="stat-card"><small>Registros</small><strong>${stats.total}</strong></div>
+        <div class="stat-card"><small>Institucionales</small><strong>${stats.institutionalDays}</strong></div>
+        <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
       </div>
     `;
     $('#prevMonth').addEventListener('click', () => { state.viewDate = new Date(year, month - 1, 1); renderAll(); });
     $('#nextMonth').addEventListener('click', () => { state.viewDate = new Date(year, month + 1, 1); renderAll(); });
     $$('.day-cell:not(.out)', $('#tabCalendario')).forEach(cell => cell.addEventListener('click', () => openDayModal(cell.dataset.date)));
-    bindPendingButtons($('#tabCalendario'));
   }
 
   function calendarCells(year, month) {
@@ -492,7 +514,8 @@
         dayRec?.status === 'sin_novedades' ? 'Sin novedades' :
         count ? `${count} registro${count === 1 ? '' : 's'}` :
         isWeekend(iso) ? 'No laboral' : holidaySet.has(iso) ? 'Festivo' : '';
-      html += `<button class="${classes.join(' ')}" data-date="${iso}" data-count="${count}"><span class="day-num">${day}</span><span class="day-note">${escapeHtml(note)}</span></button>`;
+      const pendingBubble = classes.includes('pending') ? '<span class="pending-bubble">PENDIENTE</span>' : '';
+      html += `<button class="${classes.join(' ')}" data-date="${iso}" data-count="${count}"><span class="day-num">${day}</span>${pendingBubble}<span class="day-note">${escapeHtml(note)}</span></button>`;
     }
     return html;
   }
@@ -843,34 +866,44 @@
   }
 
   function renderPdf() {
-    const y = state.viewDate.getFullYear();
-    const m = state.viewDate.getMonth();
-    const stats = computeStats();
+    const y = state.pdfDate.getFullYear();
+    const m = state.pdfDate.getMonth();
+    const stats = computeStats(state.pdfDate);
+    const monthValue = `${y}-${String(m + 1).padStart(2, '0')}`;
     $('#tabPdf').innerHTML = `
       <div class="panel">
-        <h2>Reportes de ${escapeHtml(MONTHS[m])} ${y}</h2>
-        <p class="muted">Genera reportes formales listos para imprimir o guardar como PDF.</p>
-        <div class="grid three">
+        <h2>Reportes</h2>
+        <p class="muted">Selecciona el mes y genera reportes formales listos para imprimir o guardar como PDF.</p>
+        <label class="field pdf-month-field"><span>Mes del reporte</span><input id="pdfMonth" type="month" value="${monthValue}"></label>
+        <h3 style="margin-top:12px;">${escapeHtml(MONTHS[m])} ${y}</h3>
+        <div class="grid three summary-three">
           <div class="stat-card"><small>Registros</small><strong>${stats.total}</strong></div>
           <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
-          <div class="stat-card"><small>Días institucionales</small><strong>${stats.institutionalDays}</strong></div>
+          <div class="stat-card"><small>Institucionales</small><strong>${stats.institutionalDays}</strong></div>
         </div>
         <div class="actions-row">
           <button class="primary-btn" id="printPlanilla">Planilla mensual</button>
           <button class="secondary-btn" id="printDetalle">Detalle mensual</button>
           <button class="ghost-btn" id="printResumen">Resumen por docente</button>
         </div>
-        <p class="tiny muted">En esta v0.1 el navegador abre la vista de impresión. Allí eliges “Guardar como PDF”. Luego conectamos generación automática + correo mensual.</p>
+        <p class="tiny muted">El PDF usa Calibri para mantener apariencia institucional. El navegador abre la vista de impresión; allí eliges “Guardar como PDF”.</p>
       </div>`;
+    $('#pdfMonth').addEventListener('change', event => {
+      const [yy, mm] = event.target.value.split('-').map(Number);
+      if (yy && mm) {
+        state.pdfDate = new Date(yy, mm - 1, 1);
+        renderPdf();
+      }
+    });
     $('#printPlanilla').addEventListener('click', () => printReport('planilla'));
     $('#printDetalle').addEventListener('click', () => printReport('detalle'));
     $('#printResumen').addEventListener('click', () => printReport('resumen'));
   }
 
   function reportData() {
-    const y = state.viewDate.getFullYear();
-    const m = state.viewDate.getMonth();
-    return { settings: state.settings, teachers: state.teachers, types: state.types, records: monthRecords(), days: monthDays(), holidays: state.holidays, year: y, monthIndex: m };
+    const y = state.pdfDate.getFullYear();
+    const m = state.pdfDate.getMonth();
+    return { settings: state.settings, teachers: state.teachers, types: state.types, records: monthRecords(state.pdfDate), days: monthDays(state.pdfDate), holidays: state.holidays, year: y, monthIndex: m };
   }
 
   function printReport(kind) {

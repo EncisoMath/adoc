@@ -54,10 +54,9 @@
   function openPrintWindow(html, title) {
     const win = window.open('', '_blank');
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
       <style>
         @page { size: landscape; margin: 8mm; }
-        body { font-family: Montserrat, Arial, sans-serif; margin: 0; color: #111; }
+        body { font-family: Calibri, Arial, sans-serif; margin: 0; color: #111; }
         .report-page { background: #fff; padding: 0; }
         .report-table { width: 100%; border-collapse: collapse; font-size: 8.7px; }
         .report-table th, .report-table td { border: 1px solid #333; padding: 2px 3px; vertical-align: top; }
