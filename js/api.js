@@ -8,6 +8,8 @@
     }
   });
 
+  const apiErrors = [];
+
   const TABLE_KEYS = [
     'app_settings',
     'teachers',
@@ -42,9 +44,12 @@
       const query = queryBuilder ? queryBuilder(client.from(table)) : client.from(table).select('*');
       const { data, error } = await query;
       if (error) throw error;
+      apiErrors.splice(0, apiErrors.length, ...apiErrors.filter(e => e.table !== table));
       await setCache(table, data || []);
       return data || [];
     } catch (err) {
+      const message = err?.message || String(err);
+      apiErrors.push({ table, message, at: new Date().toISOString() });
       console.warn('Fallo select, usando cache', table, err);
       return await fromCache(table);
     }
@@ -110,6 +115,7 @@
   window.Api = {
     client,
     dateMonthRange,
+    apiErrors,
 
     async session() {
       const { data } = await client.auth.getSession();

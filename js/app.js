@@ -13,7 +13,8 @@
     currentTab: 'tabHoy',
     viewDate: new Date(),
     selectedDate: new Date().toISOString().slice(0, 10),
-    weather: null
+    weather: null,
+    recognition: null
   };
 
   const DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -45,6 +46,45 @@
     return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   }
 
+  function capitalizeFirst(text) {
+    const value = String(text || '').trim();
+    if (!value) return '';
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function ensureFinalPunctuation(text) {
+    const value = String(text || '').trim();
+    if (!value) return '';
+    return /[.!?]$/.test(value) ? value : value + '.';
+  }
+
+  function cleanObservationText(text) {
+    return ensureFinalPunctuation(capitalizeFirst(String(text || '').replace(/\s+/g, ' ').trim()));
+  }
+
+  function appendDictationText(current, addition) {
+    const existing = String(current || '').trim();
+    const added = cleanObservationText(addition);
+    if (!existing) return added;
+    return `${existing}${/[.!?]$/.test(existing) ? ' ' : '. '}${capitalizeFirst(added)}`.replace(/\s+/g, ' ').trim();
+  }
+
+  function showModal() {
+    const modal = $('#modal');
+    modal.classList.remove('closing');
+    if (!modal.open) modal.showModal();
+  }
+
+  function closeModal() {
+    const modal = $('#modal');
+    if (!modal.open) return;
+    modal.classList.add('closing');
+    window.setTimeout(() => {
+      if (modal.open) modal.close();
+      modal.classList.remove('closing');
+    }, 170);
+  }
+
   function toast(message, ms = 3300) {
     const root = $('#toastRoot');
     const el = document.createElement('div');
@@ -68,6 +108,7 @@
     $('#appShell').classList.remove('booting');
     bindAuth();
     bindNavigation();
+    bindModalControls();
     registerServiceWorker();
     window.addEventListener('online', async () => {
       toast('Conexión recuperada. Sincronizando...');
@@ -132,12 +173,27 @@
     msg.classList.remove('hidden');
   }
 
+  function bindModalControls() {
+    $('#modalCloseBtn').addEventListener('click', closeModal);
+    $('#modal').addEventListener('cancel', event => {
+      event.preventDefault();
+      closeModal();
+    });
+    $('#modal').addEventListener('click', event => {
+      if (event.target === $('#modal')) closeModal();
+    });
+  }
+
   async function loadApp() {
     showMain();
     try {
       const data = await Api.bootstrap();
       Object.assign(state, data);
       state.settings = data.settings || defaultSettings();
+      if ((!data.teachers?.length || !data.types?.length) && Api.apiErrors?.length) {
+        const first = Api.apiErrors[0];
+        toast(`Supabase no entregó datos de ${first.table}: ${first.message}. Ejecuta el parche SQL de permisos.` , 7000);
+      }
       await fetchWeather();
       applyTheme();
       renderAll();
@@ -469,7 +525,7 @@
       <h3>Registros del día</h3>
       ${records.length ? `<div class="list">${records.map(r => recordListItem(r)).join('')}</div>` : '<p class="muted">Sin registros de docentes en este día.</p>'}
     `;
-    modal.showModal();
+    showModal();
     $('#addRecordBtn').addEventListener('click', () => openAttendanceForm(dateStr));
     $('#dayNoNewsBtn').addEventListener('click', () => markNoNews(dateStr));
     $('#institutionalBtn').addEventListener('click', () => openInstitutionalForm(dateStr));
@@ -503,6 +559,7 @@
           <button type="button" class="ghost-btn" id="spellBtn">Corregir redacción</button>
           <button type="button" class="ghost-btn" id="voiceBtn">🎙 Dictar</button>
         </div>
+        <div id="voiceStatus" class="voice-status hidden" aria-live="polite"></div>
         <button type="button" class="primary-btn" id="saveRecordBtn">Guardar</button>
       </div>
     `;
@@ -520,14 +577,15 @@
         teacher_id: $('#recTeacher').value,
         absence_code: $('#recType').value,
         observation_original: record?.observation_original || $('#recObservation').value.trim(),
-        observation_final: $('#recObservation').value.trim(),
+        observation_corrected: $('#recObservation').dataset.corrected === 'true' ? $('#recObservation').value.trim() : (record?.observation_corrected || null),
+        observation_final: cleanObservationText($('#recObservation').value.trim()),
         replacement_name: $('#recType').value === 'RM' ? $('#recReplacement').value.trim() : null,
         has_attachments: record?.has_attachments || false
       };
       if (!payload.date || !payload.teacher_id || !payload.absence_code) return toast('Faltan datos obligatorios.');
       await Api.saveAttendance(payload);
       await Api.saveDayRecord({ date: payload.date, status: 'con_novedades', is_school_day: true });
-      $('#modal').close();
+      closeModal();
       await refreshData();
       toast('Novedad guardada.');
     });
@@ -537,38 +595,124 @@
     const input = $('#recObservation');
     let text = input.value.trim();
     if (!text) return toast('Escribe una observación primero.');
+
     const replacements = [
-      [/\bwasap\b/gi, 'WhatsApp'], [/\bwsp\b/gi, 'WhatsApp'], [/\bws\b/gi, 'WhatsApp'],
-      [/\bq\b/gi, 'que'], [/\bx\b/gi, 'por'], [/\bmedica\b/gi, 'médica'],
-      [/\bcit(a|as) medica(s)?\b/gi, 'cita médica'], [/\benvio\b/gi, 'Envió'], [/\bmsj\b/gi, 'mensaje']
+      [/\b(wasap|wasapp|wsp|ws|whasap|guasap|guasapp|whatssap)\b/gi, 'WhatsApp'],
+      [/\bmsj\b/gi, 'mensaje'],
+      [/\bmsg\b/gi, 'mensaje'],
+      [/\bxq\b|\bpq\b|\bporq\b|\bpor qué\b/gi, 'porque'],
+      [/\bq\b/gi, 'que'],
+      [/\bx\b/gi, 'por'],
+      [/\bd\b/gi, 'de'],
+      [/\bpa\b/gi, 'para'],
+      [/\bescusa(s)?\b/gi, 'excusa$1'],
+      [/\bexcusas\b/gi, 'excusas'],
+      [/\bexcuza(s)?\b/gi, 'excusa$1'],
+      [/\banoxe\b|\banochee\b/gi, 'anoche'],
+      [/\bubo\b|\buvo\b/gi, 'hubo'],
+      [/\bmndo\b|\bmando\b/gi, 'mandó'],
+      [/\benvio\b/gi, 'envió'],
+      [/\benvia\b/gi, 'envía'],
+      [/\bpresento\b/gi, 'presentó'],
+      [/\bdejo\b/gi, 'dejó'],
+      [/\bpidio\b/gi, 'pidió'],
+      [/\binformo\b/gi, 'informó'],
+      [/\bmedica\b/gi, 'médica'],
+      [/\bmedico\b/gi, 'médico'],
+      [/\bincapacidad medica\b/gi, 'incapacidad médica'],
+      [/\bcita medica\b/gi, 'cita médica'],
+      [/\bfliar\b/gi, 'familiar'],
+      [/\bfcion\b|\bfundacion\b/gi, 'Fundación'],
+      [/\bbquilla\b/gi, 'Barranquilla'],
+      [/\bsantamarta\b/gi, 'Santa Marta']
     ];
-    replacements.forEach(([re, v]) => text = text.replace(re, v));
-    text = text.replace(/\s+/g, ' ').trim();
-    text = text.charAt(0).toUpperCase() + text.slice(1);
-    if (!/[.!?]$/.test(text)) text += '.';
+
+    replacements.forEach(([re, v]) => { text = text.replace(re, v); });
+    text = text
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .replace(/([,.;:!?])([^\s])/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    text = cleanObservationText(text);
     input.value = text;
-    toast('Corrección local aplicada. Luego conectaremos el agente OpenAI.');
+    input.dataset.corrected = 'true';
+    toast('Corrección aplicada. Ejemplo: “No mandó excusa porque anoche no hubo luz.”');
   }
 
   function startDictation() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return toast('Este navegador no soporta dictado local. Luego usaremos OpenAI por Supabase.');
+    const btn = $('#voiceBtn');
+    const input = $('#recObservation');
+    const status = $('#voiceStatus');
+
+    if (!SpeechRecognition) {
+      return toast('Este navegador no soporta dictado local. Luego usaremos OpenAI por Supabase.');
+    }
+
+    if (state.recognition) {
+      state.recognition.stop();
+      return;
+    }
+
     const rec = new SpeechRecognition();
+    state.recognition = rec;
     rec.lang = 'es-CO';
-    rec.interimResults = false;
+    rec.interimResults = true;
+    rec.continuous = false;
     rec.maxAlternatives = 1;
-    rec.onresult = e => {
-      const text = e.results[0][0].transcript;
-      $('#recObservation').value = ($('#recObservation').value + ' ' + text).trim();
+
+    let finalTranscript = '';
+
+    const setVoiceStatus = (message, active = true) => {
+      status.textContent = message;
+      status.classList.remove('hidden');
+      status.classList.toggle('listening', active);
+      btn.classList.toggle('voice-active', active);
+      btn.textContent = active ? '■ Detener dictado' : '🎙 Dictar';
     };
-    rec.onerror = () => toast('No se pudo usar el micrófono.');
-    rec.start();
-    toast('Escuchando...');
+
+    rec.onstart = () => setVoiceStatus('🎙 Micrófono activo. Empieza a hablar...', true);
+    rec.onspeechstart = () => setVoiceStatus('🟢 Te estoy escuchando...', true);
+    rec.onspeechend = () => setVoiceStatus('🟡 Dejaste de hablar. Cerrando dictado...', true);
+
+    rec.onresult = event => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const part = event.results[i][0].transcript.trim();
+        if (event.results[i].isFinal) finalTranscript += ' ' + part;
+        else interim += ' ' + part;
+      }
+      if (interim.trim()) setVoiceStatus(`🗣 Escuchando: “${interim.trim()}”`, true);
+    };
+
+    rec.onerror = event => {
+      setVoiceStatus('🔴 No se pudo usar el micrófono. Revisa permisos.', false);
+      toast(event.error === 'not-allowed' ? 'Permiso de micrófono denegado.' : 'No se pudo usar el micrófono.');
+    };
+
+    rec.onend = () => {
+      if (finalTranscript.trim()) {
+        input.value = appendDictationText(input.value, finalTranscript);
+        setVoiceStatus('✅ Dictado agregado a la observación.', false);
+      } else {
+        setVoiceStatus('⚪ Dictado detenido sin texto.', false);
+      }
+      state.recognition = null;
+      window.setTimeout(() => status.classList.add('hidden'), 2300);
+    };
+
+    try {
+      rec.start();
+    } catch {
+      state.recognition = null;
+      setVoiceStatus('🔴 No se pudo iniciar el dictado.', false);
+    }
   }
 
   async function markNoNews(dateStr) {
     await Api.saveDayRecord({ date: dateStr, status: 'sin_novedades', is_school_day: true, observation: 'Día registrado sin novedades.' });
-    $('#modal').close();
+    closeModal();
     await refreshData();
     toast('Día marcado sin novedades.');
   }
@@ -594,7 +738,7 @@
         observation: $('#instObs').value.trim(),
         is_school_day: $('#instType').value !== 'Festivo'
       });
-      $('#modal').close();
+      closeModal();
       await refreshData();
       toast('Evento institucional guardado.');
     });
@@ -604,11 +748,27 @@
     const rec = state.records.find(r => r.id === id);
     if (!rec) return;
     const name = teacherById(rec.teacher_id)?.full_name || 'Docente';
-    if (!confirm(`¿Eliminar esta novedad?\n\nDocente: ${name}\nFecha: ${fmtShort(rec.date)}\nTipo: ${rec.absence_code}`)) return;
-    await Api.softDeleteAttendance(id);
-    $('#modal').close();
-    await refreshData();
-    toast('Novedad eliminada.');
+    const type = typeByCode(rec.absence_code)?.name || rec.absence_code;
+    $('#modalContent').innerHTML = `
+      <h2>¿Eliminar esta novedad?</h2>
+      <div class="panel danger-panel">
+        <p><strong>Docente:</strong> ${escapeHtml(name)}</p>
+        <p><strong>Fecha:</strong> ${escapeHtml(fmtShort(rec.date))}</p>
+        <p><strong>Tipo:</strong> ${escapeHtml(type)} (${escapeHtml(rec.absence_code)})</p>
+        <p class="muted">La novedad no se borra físicamente: queda marcada como eliminada para poder auditarla después.</p>
+      </div>
+      <div class="actions-row">
+        <button type="button" class="secondary-btn" id="cancelDeleteBtn">Cancelar</button>
+        <button type="button" class="danger-btn" id="confirmDeleteBtn">Eliminar</button>
+      </div>`;
+    showModal();
+    $('#cancelDeleteBtn').addEventListener('click', () => openDayModal(rec.date));
+    $('#confirmDeleteBtn').addEventListener('click', async () => {
+      await Api.softDeleteAttendance(id);
+      closeModal();
+      await refreshData();
+      toast('Novedad eliminada.');
+    });
   }
 
   function renderDocentes() {
@@ -650,7 +810,7 @@
       </div>
       <label class="field"><span>Notas</span><textarea id="teacherNotes">${escapeHtml(t?.notes || '')}</textarea></label>
       <button type="button" class="primary-btn full" id="saveTeacherBtn">Guardar docente</button>`;
-    $('#modal').showModal();
+    showModal();
     $('#saveTeacherBtn').addEventListener('click', async () => {
       const payload = {
         id: t?.id || crypto.randomUUID(),
@@ -662,7 +822,7 @@
       };
       if (!payload.full_name) return toast('Escribe el nombre.');
       await Api.saveTeacher(payload);
-      $('#modal').close();
+      closeModal();
       await refreshData();
       toast('Docente guardado.');
     });
@@ -679,7 +839,7 @@
       <div class="panel"><h3>Estadística individual</h3>${renderTypeBars(byType)}</div>
       <h3>Historial</h3>
       ${recs.length ? `<div class="list">${recs.slice(0, 80).map(r => `<div class="list-item"><div class="item-title"><span>${fmtShort(r.date)}</span><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span></div><div class="item-meta">${escapeHtml(typeByCode(r.absence_code)?.name || r.absence_code)}<br>${escapeHtml(r.observation_final || '')}${r.replacement_name ? `<br>Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</div></div>`).join('')}</div>` : '<p class="muted">Sin historial.</p>'}`;
-    $('#modal').showModal();
+    showModal();
   }
 
   function renderPdf() {
