@@ -809,15 +809,19 @@
       const q = normalizeText(e.target.value);
       $$('.teacher-row').forEach(row => row.style.display = normalizeText(row.dataset.name).includes(q) ? '' : 'none');
     });
+    $$('.teacher-row').forEach(row => row.addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      openTeacherDetail(row.dataset.openTeacherRow);
+    }));
     $$('.teacher-row [data-open-teacher]').forEach(btn => btn.addEventListener('click', () => openTeacherDetail(btn.dataset.openTeacher)));
     $$('.teacher-row [data-edit-teacher]').forEach(btn => btn.addEventListener('click', () => openTeacherForm(btn.dataset.editTeacher)));
   }
 
   function teacherItem(t, count) {
-    return `<div class="list-item teacher-row" data-name="${escapeHtml(t.full_name)}">
+    return `<div class="list-item teacher-row clickable-row" data-name="${escapeHtml(t.full_name)}" data-open-teacher-row="${t.id}">
       <div class="item-title"><span>${escapeHtml(t.full_name)}</span><span class="badge ${t.active ? 'green' : 'gray'}">${t.active ? 'Activa' : 'Inactiva'}</span></div>
       <div class="item-meta">${escapeHtml(t.role)} · ${escapeHtml(t.campus)} · ${count} novedades</div>
-      <div class="item-actions"><button class="secondary-btn" data-open-teacher="${t.id}">Historial</button><button class="ghost-btn" data-edit-teacher="${t.id}">Editar</button></div>
+      <div class="item-actions"><button class="secondary-btn" data-open-teacher="${t.id}">Ver detalle</button><button class="ghost-btn" data-edit-teacher="${t.id}">Editar</button></div>
     </div>`;
   }
 
@@ -853,16 +857,118 @@
 
   function openTeacherDetail(id) {
     const t = state.teachers.find(x => x.id === id);
+    if (!t) return toast('No encontré ese docente.');
     const recs = state.records.filter(r => !r.deleted_at && r.teacher_id === id).sort((a, b) => b.date.localeCompare(a.date));
-    const byType = new Map();
-    recs.forEach(r => byType.set(r.absence_code, (byType.get(r.absence_code) || 0) + 1));
-    $('#modalContent').innerHTML = `
-      <h2>${escapeHtml(t.full_name)}</h2>
-      <p class="muted">${escapeHtml(t.role)} · ${escapeHtml(t.campus)} · ${t.active ? 'Activa' : 'Inactiva'}</p>
-      <div class="panel"><h3>Estadística individual</h3>${renderTypeBars(byType)}</div>
-      <h3>Historial</h3>
-      ${recs.length ? `<div class="list">${recs.slice(0, 80).map(r => `<div class="list-item"><div class="item-title"><span>${fmtShort(r.date)}</span><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span></div><div class="item-meta">${escapeHtml(typeByCode(r.absence_code)?.name || r.absence_code)}<br>${escapeHtml(r.observation_final || '')}${r.replacement_name ? `<br>Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</div></div>`).join('')}</div>` : '<p class="muted">Sin historial.</p>'}`;
+    const years = getTeacherRecordYears(recs);
+    const selectedYear = years.includes(state.viewDate.getFullYear()) ? state.viewDate.getFullYear() : years[0];
+
+    $('#modalContent').innerHTML = teacherDetailHtml(t, recs, selectedYear, years);
     showModal();
+    bindTeacherDetailEvents(t, recs, selectedYear, years);
+  }
+
+  function getTeacherRecordYears(recs) {
+    const years = [...new Set(recs.map(r => new Date(r.date + 'T00:00:00').getFullYear()))].sort((a, b) => b - a);
+    const currentYear = state.viewDate.getFullYear();
+    return years.length ? years : [currentYear];
+  }
+
+  function teacherDetailHtml(t, recs, selectedYear, years) {
+    const first = recs.length ? recs[recs.length - 1].date : null;
+    const last = recs.length ? recs[0].date : null;
+    const yearOptions = years.map(y => `<option value="${y}" ${y === selectedYear ? 'selected' : ''}>${y}</option>`).join('');
+    return `
+      <h2>${escapeHtml(t.full_name)}</h2>
+      <p class="muted">Información completa, estadísticas mensuales e historial del docente.</p>
+
+      <div class="teacher-detail-grid">
+        <div class="info-chip"><small>Cargo</small><strong>${escapeHtml(t.role || 'Docente')}</strong></div>
+        <div class="info-chip"><small>Sede</small><strong>${escapeHtml(t.campus || 'Sin sede')}</strong></div>
+        <div class="info-chip"><small>Estado</small><strong>${t.active !== false ? 'Activa' : 'Inactiva'}</strong></div>
+        <div class="info-chip"><small>Total histórico</small><strong>${recs.length}</strong></div>
+        <div class="info-chip"><small>Primer registro</small><strong>${first ? escapeHtml(fmtShort(first)) : 'Sin registros'}</strong></div>
+        <div class="info-chip"><small>Último registro</small><strong>${last ? escapeHtml(fmtShort(last)) : 'Sin registros'}</strong></div>
+      </div>
+
+      ${t.notes ? `<div class="panel compact-panel"><h3>Notas</h3><p>${escapeHtml(t.notes)}</p></div>` : ''}
+
+      <div class="panel compact-panel">
+        <div class="section-title-row">
+          <div>
+            <h3>Inasistencias por mes</h3>
+            <p class="tiny muted">Eje X: meses · Eje Y: cantidad de inasistencias de este docente.</p>
+          </div>
+          <label class="field mini-field"><span>Año</span><select id="teacherYearSelect">${yearOptions}</select></label>
+        </div>
+        <div id="teacherMonthlyChartWrap">${renderTeacherMonthlyChart(recs, selectedYear)}</div>
+      </div>
+
+      <div class="panel compact-panel">
+        <h3>Tabla mes a mes</h3>
+        <div id="teacherMonthlyTableWrap">${renderTeacherMonthlyTable(recs, selectedYear)}</div>
+      </div>
+
+      <div class="panel compact-panel">
+        <h3>Historial detallado</h3>
+        ${renderTeacherHistoryList(recs)}
+      </div>`;
+  }
+
+  function bindTeacherDetailEvents(t, recs, selectedYear, years) {
+    const selector = $('#teacherYearSelect');
+    if (!selector) return;
+    selector.addEventListener('change', e => {
+      const year = Number(e.target.value);
+      $('#teacherMonthlyChartWrap').innerHTML = renderTeacherMonthlyChart(recs, year);
+      $('#teacherMonthlyTableWrap').innerHTML = renderTeacherMonthlyTable(recs, year);
+    });
+  }
+
+  function teacherMonthlyCounts(recs, year) {
+    const counts = Array(12).fill(0);
+    recs.forEach(r => {
+      const d = new Date(r.date + 'T00:00:00');
+      if (d.getFullYear() === year) counts[d.getMonth()] += 1;
+    });
+    return counts;
+  }
+
+  function renderTeacherMonthlyChart(recs, year) {
+    const counts = teacherMonthlyCounts(recs, year);
+    const max = Math.max(1, ...counts);
+    const hasData = counts.some(v => v > 0);
+    if (!hasData) return `<p class="muted">Este docente no tiene inasistencias registradas en ${year}.</p>`;
+    return `<div class="teacher-month-chart" role="img" aria-label="Inasistencias mensuales de ${year}">
+      <div class="teacher-axis-y"><span>${max}</span><span>0</span></div>
+      <div class="teacher-month-bars">
+        ${counts.map((value, i) => {
+          const h = Math.max(value ? 12 : 0, Math.round((value / max) * 100));
+          const label = MONTHS[i].slice(0, 3);
+          return `<div class="teacher-month-bar-wrap" title="${escapeHtml(MONTHS[i])}: ${value} inasistencia${value === 1 ? '' : 's'}"><div class="teacher-month-bar" style="height:${h}%"><span>${value || ''}</span></div><small>${escapeHtml(label)}</small></div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  function renderTeacherMonthlyTable(recs, year) {
+    const rows = Array.from({ length: 12 }, (_, month) => {
+      const monthRecs = recs
+        .filter(r => {
+          const d = new Date(r.date + 'T00:00:00');
+          return d.getFullYear() === year && d.getMonth() === month;
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const summary = monthRecs.length
+        ? monthRecs.map(r => `${fmtShort(r.date)} · ${r.absence_code}${r.observation_final ? ` · ${r.observation_final}` : ''}${r.replacement_name ? ` · Reemplazo: ${r.replacement_name}` : ''}`).join('<br>')
+        : '<span class="muted">Sin inasistencias</span>';
+      return `<tr><td>${escapeHtml(MONTHS[month])}</td><td><strong>${monthRecs.length}</strong></td><td>${summary}</td></tr>`;
+    }).join('');
+    return `<div class="table-scroll"><table class="mini-table"><thead><tr><th>Mes</th><th>Total</th><th>Detalle</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderTeacherHistoryList(recs) {
+    if (!recs.length) return '<p class="muted">Sin historial.</p>';
+    return `<div class="list">${recs.slice(0, 120).map(r => `<div class="list-item"><div class="item-title"><span>${fmtShort(r.date)}</span><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span></div><div class="item-meta">${escapeHtml(typeByCode(r.absence_code)?.name || r.absence_code)}<br>${escapeHtml(r.observation_final || '')}${r.replacement_name ? `<br>Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</div></div>`).join('')}</div>${recs.length > 120 ? '<p class="tiny muted">Mostrando los 120 registros más recientes.</p>' : ''}`;
   }
 
   function renderPdf() {

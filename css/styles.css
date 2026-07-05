@@ -392,3 +392,146 @@ h1, h2, h3, p { margin-top: 0; }
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.01); }
 }
+
+/* v0.4 - detalle completo del docente */
+.clickable-row {
+  cursor: pointer;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+.clickable-row:hover {
+  transform: translateY(-1px) scale(1.002);
+  border-color: color-mix(in srgb, var(--fuchsia) 38%, var(--line));
+  background: color-mix(in srgb, var(--fuchsia) 5%, var(--surface));
+}
+.teacher-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.info-chip {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 10px;
+  min-height: 66px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+.info-chip small {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: 10px;
+  font-weight: 900;
+}
+.info-chip strong {
+  font-size: 15px;
+  line-height: 1.15;
+}
+.compact-panel {
+  margin-top: 12px;
+}
+.section-title-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, 170px);
+  gap: 10px;
+  align-items: start;
+}
+.mini-field {
+  margin: 0;
+}
+.teacher-month-chart {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  min-height: 210px;
+  overflow-x: auto;
+  padding: 10px 0 4px;
+}
+.teacher-axis-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  padding: 4px 0 24px;
+}
+.teacher-month-bars {
+  min-width: 520px;
+  height: 185px;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(28px, 1fr));
+  align-items: end;
+  gap: 8px;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 6px 0;
+}
+.teacher-month-bar-wrap {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr 20px;
+  align-items: end;
+  justify-items: center;
+  gap: 4px;
+}
+.teacher-month-bar {
+  width: 100%;
+  min-height: 0;
+  background: linear-gradient(180deg, var(--fuchsia), var(--fuchsia-2));
+  border-radius: 4px 4px 0 0;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  padding-top: 3px;
+  animation: barRise .46s cubic-bezier(.2,.75,.2,1) both;
+}
+.teacher-month-bar-wrap small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.mini-table th,
+.mini-table td {
+  border: 1px solid var(--line);
+  padding: 8px;
+  vertical-align: top;
+  text-align: left;
+}
+.mini-table th {
+  background: var(--surface-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.mini-table td:nth-child(1) {
+  width: 105px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+.mini-table td:nth-child(2) {
+  width: 58px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .teacher-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .section-title-row { grid-template-columns: 1fr; }
+  .teacher-month-bars { min-width: 430px; gap: 5px; }
+}
