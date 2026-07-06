@@ -14,6 +14,7 @@
     viewDate: new Date(),
     pdfDate: new Date(),
     selectedDate: new Date().toISOString().slice(0, 10),
+    selectedTeacherId: null,
     weather: null,
     recognition: null
   };
@@ -32,6 +33,42 @@
   function fmtLong(date) {
     const d = typeof date === 'string' ? new Date(date + 'T00:00:00') : date;
     return `${DAY_NAMES[d.getDay()]}, ${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`;
+  }
+
+
+  function fmtMonthYear(date) {
+    const d = typeof date === 'string' ? new Date(date + 'T00:00:00') : date;
+    return `${capitalizeFirst(MONTHS[d.getMonth()])} ${d.getFullYear()}`;
+  }
+
+  function monthValue(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  function parseMonthValue(value) {
+    const [year, month] = String(value || '').split('-').map(Number);
+    return year && month ? new Date(year, month - 1, 1) : new Date();
+  }
+
+  function allKnownMonthOptions() {
+    const dates = [todayIso(), ...state.records.map(r => r.date), ...state.days.map(d => d.date), ...state.holidays.map(h => h.date)].filter(Boolean).sort();
+    const first = dates.length ? new Date(dates[0] + 'T00:00:00') : new Date();
+    const last = new Date();
+    const maxKnown = dates.length ? new Date(dates[dates.length - 1] + 'T00:00:00') : last;
+    const end = maxKnown > last ? maxKnown : last;
+    const start = new Date(first.getFullYear(), first.getMonth(), 1);
+    const months = [];
+    for (let d = new Date(start); d <= new Date(end.getFullYear(), end.getMonth(), 1); d.setMonth(d.getMonth() + 1)) {
+      months.push({ value: monthValue(d), label: fmtMonthYear(d) });
+    }
+    return months;
+  }
+
+  function renderTopMonthSelector() {
+    const select = $('#globalMonthSelect');
+    if (!select) return;
+    const selected = monthValue(state.viewDate);
+    select.innerHTML = allKnownMonthOptions().map(m => `<option value="${m.value}" ${m.value === selected ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('');
   }
 
   function fmtShort(dateStr) {
@@ -231,6 +268,7 @@
 
   function renderAll() {
     applyTheme();
+    renderTopMonthSelector();
     renderHoy();
     renderCalendario();
     renderDocentes();
@@ -242,6 +280,11 @@
   function bindNavigation() {
     $$('.nav-item').forEach(btn => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+    $('#globalMonthSelect')?.addEventListener('change', event => {
+      state.viewDate = parseMonthValue(event.target.value);
+      state.pdfDate = new Date(state.viewDate);
+      renderAll();
     });
   }
 
@@ -467,10 +510,9 @@
     const title = `${MONTHS[month]} ${year}`;
     const stats = computeStats();
     $('#tabCalendario').innerHTML = `
-      <div class="calendar-head">
-        <button class="icon-btn" id="prevMonth">‹</button>
+      <div class="calendar-title-row">
         <h2>${escapeHtml(title)}</h2>
-        <button class="icon-btn" id="nextMonth">›</button>
+        <p class="tiny muted">El mes se cambia desde el selector superior.</p>
       </div>
       <div class="calendar-grid">
         ${['D','L','M','M','J','V','S'].map(d => `<div class="weekday">${d}</div>`).join('')}
@@ -482,8 +524,6 @@
         <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
       </div>
     `;
-    $('#prevMonth').addEventListener('click', () => { state.viewDate = new Date(year, month - 1, 1); renderAll(); });
-    $('#nextMonth').addEventListener('click', () => { state.viewDate = new Date(year, month + 1, 1); renderAll(); });
     $$('.day-cell:not(.out)', $('#tabCalendario')).forEach(cell => cell.addEventListener('click', () => openDayModal(cell.dataset.date)));
   }
 
@@ -510,12 +550,16 @@
       if (dayRec?.status === 'sin_novedades') classes.push('ok');
       if (dayRec?.status === 'institucional') classes.push('institutional');
       if (!isWeekend(iso) && !holidaySet.has(iso) && !count && (!dayRec || dayRec.status === 'pendiente') && iso <= todayIso()) classes.push('pending');
-      const note = dayRec?.status === 'institucional' ? (dayRec.institutional_type || dayRec.institutional_title || 'Institucional') :
-        dayRec?.status === 'sin_novedades' ? 'Sin novedades' :
-        count ? `${count} registro${count === 1 ? '' : 's'}` :
-        isWeekend(iso) ? 'No laboral' : holidaySet.has(iso) ? 'Festivo' : '';
-      const pendingBubble = classes.includes('pending') ? '<span class="pending-bubble">PENDIENTE</span>' : '';
-      html += `<button class="${classes.join(' ')}" data-date="${iso}" data-count="${count}"><span class="day-num">${day}</span>${pendingBubble}<span class="day-note">${escapeHtml(note)}</span></button>`;
+      const pill = classes.includes('pending')
+        ? '<span class="day-pill pending-bubble">PENDIENTE</span>'
+        : count
+          ? `<span class="day-pill count-pill">${count}</span>`
+          : dayRec?.status === 'institucional'
+            ? `<span class="day-mini-note event-note">${escapeHtml(dayRec.institutional_type || dayRec.institutional_title || 'Evento')}</span>`
+            : dayRec?.status === 'sin_novedades'
+              ? '<span class="day-mini-note">Sin nov.</span>'
+              : (isWeekend(iso) || holidaySet.has(iso)) ? '<span class="day-mini-note">No laboral</span>' : '';
+      html += `<button class="${classes.join(' ')}" data-date="${iso}" data-count="${count}"><span class="day-num">${day}</span>${pill}</button>`;
     }
     return html;
   }
@@ -795,11 +839,29 @@
   }
 
   function renderDocentes() {
+    if (state.selectedTeacherId) {
+      const t = state.teachers.find(x => x.id === state.selectedTeacherId);
+      if (!t) state.selectedTeacherId = null;
+      else {
+        const recs = state.records.filter(r => !r.deleted_at && r.teacher_id === t.id).sort((a, b) => b.date.localeCompare(a.date));
+        const selectedYear = state.viewDate.getFullYear();
+        $('#tabDocentes').innerHTML = teacherDetailHtml(t, recs, selectedYear);
+        bindTeacherDetailEvents(t, recs, selectedYear);
+        return;
+      }
+    }
+
     const rows = [...state.teachers].sort((a, b) => (b.active === true) - (a.active === true) || a.full_name.localeCompare(b.full_name, 'es'));
     const counts = new Map();
-    state.records.filter(r => !r.deleted_at).forEach(r => counts.set(r.teacher_id, (counts.get(r.teacher_id) || 0) + 1));
+    monthRecords(state.viewDate).forEach(r => counts.set(r.teacher_id, (counts.get(r.teacher_id) || 0) + 1));
     $('#tabDocentes').innerHTML = `
-      <div class="actions-row"><button class="primary-btn" id="newTeacherBtn">Agregar docente</button></div>
+      <div class="section-title-row docentes-title-row">
+        <div>
+          <h2>Docentes</h2>
+          <p class="tiny muted">Novedades de ${escapeHtml(fmtMonthYear(state.viewDate))}. Cambia el mes desde la barra superior.</p>
+        </div>
+        <button class="primary-btn" id="newTeacherBtn">Agregar docente</button>
+      </div>
       <div class="search-row"><input id="teacherSearch" placeholder="Buscar docente..."></div>
       <div class="list" id="teacherList">
         ${rows.map(t => teacherItem(t, counts.get(t.id) || 0)).join('')}
@@ -820,7 +882,7 @@
   function teacherItem(t, count) {
     return `<div class="list-item teacher-row clickable-row" data-name="${escapeHtml(t.full_name)}" data-open-teacher-row="${t.id}">
       <div class="item-title"><span>${escapeHtml(t.full_name)}</span><span class="badge ${t.active ? 'green' : 'gray'}">${t.active ? 'Activa' : 'Inactiva'}</span></div>
-      <div class="item-meta">${escapeHtml(t.role)} · ${escapeHtml(t.campus)} · ${count} novedades</div>
+      <div class="item-meta">${escapeHtml(t.role)} · ${escapeHtml(t.campus)} · ${count} novedad${count === 1 ? '' : 'es'} en ${escapeHtml(fmtMonthYear(state.viewDate))}</div>
       <div class="item-actions"><button class="secondary-btn" data-open-teacher="${t.id}">Ver detalle</button><button class="ghost-btn" data-edit-teacher="${t.id}">Editar</button></div>
     </div>`;
   }
@@ -858,13 +920,9 @@
   function openTeacherDetail(id) {
     const t = state.teachers.find(x => x.id === id);
     if (!t) return toast('No encontré ese docente.');
-    const recs = state.records.filter(r => !r.deleted_at && r.teacher_id === id).sort((a, b) => b.date.localeCompare(a.date));
-    const years = getTeacherRecordYears(recs);
-    const selectedYear = years.includes(state.viewDate.getFullYear()) ? state.viewDate.getFullYear() : years[0];
-
-    $('#modalContent').innerHTML = teacherDetailHtml(t, recs, selectedYear, years);
-    showModal();
-    bindTeacherDetailEvents(t, recs, selectedYear, years);
+    state.selectedTeacherId = id;
+    if (state.currentTab !== 'tabDocentes') switchTab('tabDocentes', false);
+    renderDocentes();
   }
 
   function getTeacherRecordYears(recs) {
@@ -873,55 +931,54 @@
     return years.length ? years : [currentYear];
   }
 
-  function teacherDetailHtml(t, recs, selectedYear, years) {
+  function teacherDetailHtml(t, recs, selectedYear) {
     const first = recs.length ? recs[recs.length - 1].date : null;
     const last = recs.length ? recs[0].date : null;
-    const yearOptions = years.map(y => `<option value="${y}" ${y === selectedYear ? 'selected' : ''}>${y}</option>`).join('');
+    const yearRecs = recs.filter(r => new Date(r.date + 'T00:00:00').getFullYear() === selectedYear);
+    const monthRecs = yearRecs.filter(r => isSameMonth(r.date, state.viewDate.getFullYear(), state.viewDate.getMonth()));
     return `
-      <h2>${escapeHtml(t.full_name)}</h2>
-      <p class="muted">Información completa, estadísticas mensuales e historial del docente.</p>
-
-      <div class="teacher-detail-grid">
-        <div class="info-chip"><small>Cargo</small><strong>${escapeHtml(t.role || 'Docente')}</strong></div>
-        <div class="info-chip"><small>Sede</small><strong>${escapeHtml(t.campus || 'Sin sede')}</strong></div>
-        <div class="info-chip"><small>Estado</small><strong>${t.active !== false ? 'Activa' : 'Inactiva'}</strong></div>
-        <div class="info-chip"><small>Total histórico</small><strong>${recs.length}</strong></div>
-        <div class="info-chip"><small>Primer registro</small><strong>${first ? escapeHtml(fmtShort(first)) : 'Sin registros'}</strong></div>
-        <div class="info-chip"><small>Último registro</small><strong>${last ? escapeHtml(fmtShort(last)) : 'Sin registros'}</strong></div>
+      <div class="teacher-page-head">
+        <button class="secondary-btn" id="backTeachersBtn">← Volver</button>
+        <button class="ghost-btn" id="editTeacherFromDetailBtn">Editar docente</button>
+      </div>
+      <div class="panel teacher-detail-page">
+        <h2>${escapeHtml(t.full_name)}</h2>
+        <p class="muted">Detalle normal del docente. La gráfica usa el año ${selectedYear}; el contador mensual usa ${escapeHtml(fmtMonthYear(state.viewDate))}.</p>
+        <div class="teacher-detail-grid">
+          <div class="info-chip"><small>Cargo</small><strong>${escapeHtml(t.role || 'Docente')}</strong></div>
+          <div class="info-chip"><small>Sede</small><strong>${escapeHtml(t.campus || 'Sin sede')}</strong></div>
+          <div class="info-chip"><small>Estado</small><strong>${t.active !== false ? 'Activa' : 'Inactiva'}</strong></div>
+          <div class="info-chip"><small>Mes seleccionado</small><strong>${monthRecs.length}</strong></div>
+          <div class="info-chip"><small>Total año ${selectedYear}</small><strong>${yearRecs.length}</strong></div>
+          <div class="info-chip"><small>Total histórico</small><strong>${recs.length}</strong></div>
+          <div class="info-chip"><small>Primer registro</small><strong>${first ? escapeHtml(fmtShort(first)) : 'Sin registros'}</strong></div>
+          <div class="info-chip"><small>Último registro</small><strong>${last ? escapeHtml(fmtShort(last)) : 'Sin registros'}</strong></div>
+        </div>
+        ${t.notes ? `<div class="compact-panel"><h3>Notas</h3><p>${escapeHtml(t.notes)}</p></div>` : ''}
       </div>
 
-      ${t.notes ? `<div class="panel compact-panel"><h3>Notas</h3><p>${escapeHtml(t.notes)}</p></div>` : ''}
-
       <div class="panel compact-panel">
-        <div class="section-title-row">
+        <div class="section-title-row one-col-title">
           <div>
             <h3>Inasistencias por mes</h3>
-            <p class="tiny muted">Eje X: meses · Eje Y: cantidad de inasistencias de este docente.</p>
+            <p class="tiny muted">Eje X: meses · Eje Y: cantidad de inasistencias de este docente en ${selectedYear}.</p>
           </div>
-          <label class="field mini-field"><span>Año</span><select id="teacherYearSelect">${yearOptions}</select></label>
         </div>
         <div id="teacherMonthlyChartWrap">${renderTeacherMonthlyChart(recs, selectedYear)}</div>
       </div>
 
       <div class="panel compact-panel">
-        <h3>Tabla mes a mes</h3>
+        <h3>Tabla mes a mes con detalle</h3>
         <div id="teacherMonthlyTableWrap">${renderTeacherMonthlyTable(recs, selectedYear)}</div>
-      </div>
-
-      <div class="panel compact-panel">
-        <h3>Historial detallado</h3>
-        ${renderTeacherHistoryList(recs)}
       </div>`;
   }
 
-  function bindTeacherDetailEvents(t, recs, selectedYear, years) {
-    const selector = $('#teacherYearSelect');
-    if (!selector) return;
-    selector.addEventListener('change', e => {
-      const year = Number(e.target.value);
-      $('#teacherMonthlyChartWrap').innerHTML = renderTeacherMonthlyChart(recs, year);
-      $('#teacherMonthlyTableWrap').innerHTML = renderTeacherMonthlyTable(recs, year);
+  function bindTeacherDetailEvents(t, recs, selectedYear) {
+    $('#backTeachersBtn')?.addEventListener('click', () => {
+      state.selectedTeacherId = null;
+      renderDocentes();
     });
+    $('#editTeacherFromDetailBtn')?.addEventListener('click', () => openTeacherForm(t.id));
   }
 
   function teacherMonthlyCounts(recs, year) {
@@ -958,30 +1015,26 @@
           return d.getFullYear() === year && d.getMonth() === month;
         })
         .sort((a, b) => a.date.localeCompare(b.date));
-      const summary = monthRecs.length
-        ? monthRecs.map(r => `${fmtShort(r.date)} · ${r.absence_code}${r.observation_final ? ` · ${r.observation_final}` : ''}${r.replacement_name ? ` · Reemplazo: ${r.replacement_name}` : ''}`).join('<br>')
+      const details = monthRecs.length
+        ? `<div class="teacher-month-detail-list">${monthRecs.map(r => `
+            <div class="teacher-month-detail-item">
+              <div class="teacher-detail-line"><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span><strong>${escapeHtml(fmtShort(r.date))}</strong></div>
+              <p>${escapeHtml(r.observation_final || 'Sin observación.')}${r.replacement_name ? `<br><strong>Reemplazo:</strong> ${escapeHtml(r.replacement_name)}` : ''}</p>
+            </div>`).join('')}</div>`
         : '<span class="muted">Sin inasistencias</span>';
-      return `<tr><td>${escapeHtml(MONTHS[month])}</td><td><strong>${monthRecs.length}</strong></td><td>${summary}</td></tr>`;
+      return `<tr><td>${escapeHtml(MONTHS[month])}</td><td><strong>${monthRecs.length}</strong></td><td>${details}</td></tr>`;
     }).join('');
-    return `<div class="table-scroll"><table class="mini-table"><thead><tr><th>Mes</th><th>Total</th><th>Detalle</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  }
-
-  function renderTeacherHistoryList(recs) {
-    if (!recs.length) return '<p class="muted">Sin historial.</p>';
-    return `<div class="list">${recs.slice(0, 120).map(r => `<div class="list-item"><div class="item-title"><span>${fmtShort(r.date)}</span><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span></div><div class="item-meta">${escapeHtml(typeByCode(r.absence_code)?.name || r.absence_code)}<br>${escapeHtml(r.observation_final || '')}${r.replacement_name ? `<br>Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</div></div>`).join('')}</div>${recs.length > 120 ? '<p class="tiny muted">Mostrando los 120 registros más recientes.</p>' : ''}`;
+    return `<div class="table-scroll"><table class="mini-table teacher-combined-table"><thead><tr><th>Mes</th><th>Total</th><th>Detalle</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderPdf() {
-    const y = state.pdfDate.getFullYear();
-    const m = state.pdfDate.getMonth();
-    const stats = computeStats(state.pdfDate);
-    const monthValue = `${y}-${String(m + 1).padStart(2, '0')}`;
+    const y = state.viewDate.getFullYear();
+    const m = state.viewDate.getMonth();
+    const stats = computeStats(state.viewDate);
     $('#tabPdf').innerHTML = `
       <div class="panel">
         <h2>Reportes</h2>
-        <p class="muted">Selecciona el mes y genera reportes formales listos para imprimir o guardar como PDF.</p>
-        <label class="field pdf-month-field"><span>Mes del reporte</span><input id="pdfMonth" type="month" value="${monthValue}"></label>
-        <h3 style="margin-top:12px;">${escapeHtml(MONTHS[m])} ${y}</h3>
+        <p class="muted">El mes del reporte es ${escapeHtml(MONTHS[m])} ${y}. Cámbialo desde el selector superior.</p>
         <div class="grid three summary-three">
           <div class="stat-card"><small>Registros</small><strong>${stats.total}</strong></div>
           <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
@@ -992,24 +1045,17 @@
           <button class="secondary-btn" id="printDetalle">Detalle mensual</button>
           <button class="ghost-btn" id="printResumen">Resumen por docente</button>
         </div>
-        <p class="tiny muted">El PDF usa Calibri para mantener apariencia institucional. El navegador abre la vista de impresión; allí eliges “Guardar como PDF”.</p>
+        <p class="tiny muted">Los reportes usan Calibri y configuración predeterminada para papel oficio horizontal 21.5 × 33 cm.</p>
       </div>`;
-    $('#pdfMonth').addEventListener('change', event => {
-      const [yy, mm] = event.target.value.split('-').map(Number);
-      if (yy && mm) {
-        state.pdfDate = new Date(yy, mm - 1, 1);
-        renderPdf();
-      }
-    });
     $('#printPlanilla').addEventListener('click', () => printReport('planilla'));
     $('#printDetalle').addEventListener('click', () => printReport('detalle'));
     $('#printResumen').addEventListener('click', () => printReport('resumen'));
   }
 
   function reportData() {
-    const y = state.pdfDate.getFullYear();
-    const m = state.pdfDate.getMonth();
-    return { settings: state.settings, teachers: state.teachers, types: state.types, records: monthRecords(state.pdfDate), days: monthDays(state.pdfDate), holidays: state.holidays, year: y, monthIndex: m };
+    const y = state.viewDate.getFullYear();
+    const m = state.viewDate.getMonth();
+    return { settings: state.settings, teachers: state.teachers, types: state.types, records: monthRecords(state.viewDate), days: monthDays(state.viewDate), holidays: state.holidays, year: y, monthIndex: m };
   }
 
   function printReport(kind) {

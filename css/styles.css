@@ -108,7 +108,19 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .eyebrow { margin: 0 0 2px; font-size: 11px; color: var(--fuchsia); font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
 .topbar h1 { margin: 0; font-size: 22px; line-height: 1.05; }
-.top-actions { display: flex; gap: 8px; }
+.top-actions { display: flex; gap: 8px; align-items: center; }
+.month-selector {
+  min-width: 132px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  padding: 0 10px;
+  outline: none;
+}
+.month-selector:focus { border-color: var(--fuchsia); box-shadow: 0 0 0 3px color-mix(in srgb, var(--fuchsia) 20%, transparent); }
 .icon-btn {
   width: 42px; height: 42px; display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: var(--radius);
@@ -131,7 +143,7 @@ h1, h2, h3, p { margin-top: 0; }
 .nav-item {
   border: 0; background: transparent; color: var(--muted);
   border-radius: var(--radius); display: grid; gap: 3px; place-items: center;
-  font-size: 11px; font-weight: 900; padding: 6px 2px;
+  font-size: 11px; font-weight: 500; padding: 6px 2px;
 }
 .nav-item span { font-size: 20px; line-height: 1; }
 .nav-item.active { color: #fff; background: var(--fuchsia); box-shadow: 0 8px 18px color-mix(in srgb, var(--fuchsia) 26%, transparent); }
@@ -166,19 +178,21 @@ h1, h2, h3, p { margin-top: 0; }
 
 .calendar-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 2px 0 10px; }
 .calendar-head h2 { margin: 0; font-size: 20px; }
+.calendar-title-row { display: flex; justify-content: space-between; align-items: end; gap: 10px; margin: 2px 0 10px; }
+.calendar-title-row h2 { margin: 0; font-size: 20px; text-transform: capitalize; }
 .calendar-grid {
   display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px;
 }
 .weekday { text-align: center; color: var(--muted); font-size: 11px; font-weight: 900; padding: 6px 0; }
 .day-cell {
-  min-height: 72px; padding: 7px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--surface); display: grid; align-content: start; gap: 4px; position: relative;
+  min-height: 72px; padding: 7px 5px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); display: grid; grid-template-rows: 20px 1fr; align-items: start; justify-items: center; gap: 5px; position: relative;
   transition: transform .16s ease, border-color .16s ease;
 }
 .day-cell:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--fuchsia) 42%, var(--line)); }
 .day-cell.out { opacity: .32; }
 .day-cell.today { outline: 3px solid color-mix(in srgb, var(--fuchsia) 30%, transparent); }
-.day-num { font-weight: 900; font-size: 14px; }
+.day-num { font-weight: 900; font-size: 14px; line-height: 1; text-align: center; }
 .day-note { font-size: 10px; line-height: 1.1; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .day-cell.weekend, .day-cell.holiday { background: color-mix(in srgb, #9ca3af 16%, var(--surface)); }
 .day-cell.ok { border-color: color-mix(in srgb, var(--success) 55%, var(--line)); }
@@ -187,20 +201,46 @@ h1, h2, h3, p { margin-top: 0; }
   background: color-mix(in srgb, var(--danger) 10%, var(--surface));
   animation: pendingPulse 1.2s ease-in-out infinite;
 }
+.day-pill {
+  align-self: start;
+  justify-self: center;
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+.count-pill {
+  background: var(--fuchsia);
+  color: #fff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--fuchsia) 26%, transparent);
+}
 .pending-bubble {
-  position: absolute;
-  right: 4px;
-  top: 4px;
   background: var(--danger);
   color: #fff;
-  border-radius: 999px;
-  padding: 2px 5px;
   font-size: 7px;
-  font-weight: 900;
   letter-spacing: .02em;
   box-shadow: 0 6px 14px color-mix(in srgb, var(--danger) 35%, transparent);
   animation: bubblePop 1.05s ease-in-out infinite;
 }
+.day-mini-note {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.day-mini-note.event-note { color: #0f172a; background: color-mix(in srgb, var(--info) 18%, #fff); }
 @keyframes pendingPulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 0%, transparent); transform: translateY(0) scale(1); }
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent); transform: translateY(-1px) scale(1.012); }
@@ -209,8 +249,8 @@ h1, h2, h3, p { margin-top: 0; }
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.08); }
 }
-.day-cell.institutional { background: color-mix(in srgb, var(--warning) 30%, var(--surface)); }
-.day-cell.has-records::after { content: attr(data-count); position: absolute; right: 6px; top: 6px; min-width: 20px; height: 20px; padding: 0 5px; display: grid; place-items: center; background: var(--fuchsia); color: #fff; font-size: 10px; font-weight: 900; border-radius: 999px; }
+.day-cell.institutional { background: color-mix(in srgb, var(--info) 16%, var(--surface)); border-color: color-mix(in srgb, var(--info) 45%, var(--line)); }
+
 .badge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border-radius: var(--radius); padding: 4px 6px; font-size: 10px; font-weight: 900; color: #111827; background: var(--warning); }
 .badge.gray { background: #d1d5db; }
 .badge.green { background: #86efac; }
@@ -534,4 +574,36 @@ h1, h2, h3, p { margin-top: 0; }
   .teacher-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .section-title-row { grid-template-columns: 1fr; }
   .teacher-month-bars { min-width: 430px; gap: 5px; }
+}
+
+.nav-item b { font-weight: 500; }
+
+
+/* v0.5 - selector global, calendario limpio y detalle docente como página */
+.teacher-page-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.teacher-page-head > * { flex: 0 1 auto; }
+.teacher-detail-page h2 { margin-bottom: 4px; }
+.docentes-title-row { grid-template-columns: 1fr minmax(150px, 190px); align-items: center; }
+.one-col-title { grid-template-columns: 1fr; }
+.teacher-combined-table td:nth-child(3) { min-width: 220px; }
+.teacher-month-detail-list { display: grid; gap: 8px; }
+.teacher-month-detail-item {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.teacher-month-detail-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.teacher-detail-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.teacher-detail-line strong { font-size: 12px; }
+.teacher-month-detail-item p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.35; }
+
+@media (max-width: 720px) {
+  .topbar { align-items: flex-start; gap: 8px; }
+  .top-actions { gap: 5px; }
+  .month-selector { min-width: 118px; max-width: 43vw; font-size: 12px; padding: 0 7px; }
+  .docentes-title-row { grid-template-columns: 1fr; }
+  .teacher-page-head { display: grid; grid-template-columns: 1fr 1fr; }
 }
