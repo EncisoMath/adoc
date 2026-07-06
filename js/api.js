@@ -194,6 +194,21 @@
       return queueOrRun({ table: 'attendance_records', action: 'upsert', payload, match: 'id' });
     },
 
+    async correctObservation(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return '';
+      if (!navigator.onLine) throw new Error('Sin conexión para corregir con IA.');
+
+      const { data, error } = await client.functions.invoke('correct-observation', {
+        body: { text: raw }
+      });
+
+      if (error) throw error;
+      const corrected = String(data?.corrected || data?.text || '').trim();
+      if (!corrected) throw new Error('La IA no devolvió texto corregido.');
+      return corrected;
+    },
+
     async softDeleteAttendance(id) {
       const payload = { id, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() };
       const rows = await fromCache('attendance_records');

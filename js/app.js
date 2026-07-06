@@ -23,6 +23,7 @@
   const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const APP_ICON_URL = new URL('icons/icon-192.png', window.location.href).href;
   const NOTIFICATION_BADGE_URL = new URL('icons/notification-badge-96.png', window.location.href).href;
+  const AI_CORRECTION_QUEUE_KEY = 'pending_ai_corrections';
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
@@ -237,6 +238,7 @@
       await fetchWeather();
       applyTheme();
       renderAll();
+      if (navigator.onLine) await processPendingAICorrections({ silent: true, refresh: true });
       toast(navigator.onLine ? 'Datos cargados desde Supabase.' : 'Modo sin conexión. Usando datos guardados.');
     } catch (err) {
       console.error(err);
@@ -302,11 +304,16 @@
     const btn = $('#syncBtn') || $('#settingsSyncBtn');
     if (btn) btn.disabled = true;
     const result = await Api.syncQueue();
+    const aiResult = result.ok ? await processPendingAICorrections({ silent: true, refresh: false }) : { corrected: 0, failed: 0 };
     if (btn) btn.disabled = false;
     if (!result.ok && result.message) return toast(result.message);
     if (result.failed) return toast(`Sincronización parcial: ${result.synced} ok, ${result.failed} pendientes.`);
     await refreshData();
-    toast(result.synced ? `Sincronizado: ${result.synced} cambios.` : 'Todo está sincronizado.');
+
+    const syncText = result.synced ? `Sincronizado: ${result.synced} cambios.` : 'Todo está sincronizado.';
+    const aiText = aiResult.corrected ? ` IA corrigió ${aiResult.corrected} observación(es).` : '';
+    const aiFail = aiResult.failed ? ` ${aiResult.failed} corrección(es) siguen pendientes.` : '';
+    toast(`${syncText}${aiText}${aiFail}`);
   }
 
   async function refreshData() {
@@ -650,6 +657,92 @@
     </div>`;
   }
 
+  function aiStatus(text, active = false) {
+    const status = $('#aiStatus');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.remove('hidden');
+    status.classList.toggle('listening', !!active);
+  }
+
+  async function pendingAICorrections() {
+    const queue = await LocalDB.get(AI_CORRECTION_QUEUE_KEY, []);
+    return Array.isArray(queue) ? queue : [];
+  }
+
+  async function queueAICorrection(item) {
+    const queue = await pendingAICorrections();
+    const nextItem = {
+      id: item.id,
+      raw: String(item.raw || '').trim(),
+      payload: item.payload,
+      attempts: item.attempts || 0,
+      lastError: item.lastError || null,
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const idx = queue.findIndex(q => q.id === nextItem.id);
+    if (idx >= 0) queue[idx] = { ...queue[idx], ...nextItem };
+    else queue.push(nextItem);
+    await LocalDB.set(AI_CORRECTION_QUEUE_KEY, queue);
+  }
+
+  async function removeAICorrection(id) {
+    const queue = await pendingAICorrections();
+    await LocalDB.set(AI_CORRECTION_QUEUE_KEY, queue.filter(q => q.id !== id));
+  }
+
+  async function correctObservationWithAI(rawText) {
+    const corrected = await Api.correctObservation(rawText);
+    return cleanObservationText(corrected);
+  }
+
+  async function processPendingAICorrections({ silent = false, refresh = false } = {}) {
+    if (!navigator.onLine) return { corrected: 0, failed: 0 };
+    const queue = await pendingAICorrections();
+    if (!queue.length) return { corrected: 0, failed: 0 };
+
+    let correctedCount = 0;
+    let failedCount = 0;
+
+    for (const item of queue.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))) {
+      try {
+        const raw = String(item.raw || item.payload?.observation_original || item.payload?.observation_final || '').trim();
+        if (!raw) {
+          await removeAICorrection(item.id);
+          continue;
+        }
+
+        const corrected = await correctObservationWithAI(raw);
+        const payload = {
+          ...item.payload,
+          id: item.id,
+          observation_original: raw,
+          observation_corrected: corrected,
+          observation_final: corrected
+        };
+
+        const result = await Api.saveAttendance(payload);
+        if (result?.queued) {
+          failedCount += 1;
+          await queueAICorrection({ ...item, attempts: (item.attempts || 0) + 1, lastError: 'La corrección quedó en cola de sincronización.' });
+          continue;
+        }
+
+        await removeAICorrection(item.id);
+        correctedCount += 1;
+      } catch (err) {
+        failedCount += 1;
+        await queueAICorrection({ ...item, attempts: (item.attempts || 0) + 1, lastError: err?.message || String(err) });
+      }
+    }
+
+    if (correctedCount && refresh) await refreshData();
+    if (correctedCount && !silent) toast(`IA corrigió ${correctedCount} observación(es) pendiente(s).`);
+    if (failedCount && !silent) toast(`${failedCount} corrección(es) siguen pendientes.`);
+    return { corrected: correctedCount, failed: failedCount };
+  }
+
   function openAttendanceForm(dateStr, recordId = null) {
     const record = recordId ? state.records.find(r => r.id === recordId) : null;
     const teachersOptions = state.teachers.filter(t => t.active !== false || t.id === record?.teacher_id).sort((a,b) => a.full_name.localeCompare(b.full_name, 'es')).map(t => `<option value="${t.id}" ${record?.teacher_id === t.id ? 'selected' : ''}>${escapeHtml(t.full_name)}${t.active === false ? ' (inactivo)' : ''}</option>`).join('');
@@ -661,14 +754,10 @@
         <label class="field"><span>Docente</span><select id="recTeacher">${teachersOptions}</select></label>
         <label class="field"><span>Tipo</span><select id="recType">${typeOptions}</select></label>
         <label class="field" id="replacementField" style="display:none;"><span>Reemplazo</span><input id="recReplacement" value="${escapeHtml(record?.replacement_name || '')}" placeholder="Nombre de quien reemplazó"></label>
-        <label class="field"><span>Observación</span><textarea id="recObservation" placeholder="Ej: Envió mensaje por WhatsApp informando cita médica.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
-        <div class="actions-row">
-          <button type="button" class="ghost-btn" id="spellBtn">Corregir redacción</button>
-          <button type="button" class="ghost-btn" id="voiceBtn">🎙 Dictado web</button>
-          <button type="button" class="ghost-btn" id="keyboardVoiceBtn">⌨ Mic del teclado</button>
-        </div>
-        <div id="voiceStatus" class="voice-status hidden" aria-live="polite"></div>
-        <button type="button" class="primary-btn" id="saveRecordBtn">Guardar</button>
+        <label class="field"><span>Observación</span><textarea id="recObservation" placeholder="Ej: no vino xq avisó por wasap que tenía cita médica.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
+        <div id="aiStatus" class="voice-status hidden" aria-live="polite"></div>
+        <p class="tiny muted">La IA corrige ortografía, abreviaturas y redacción institucional antes de guardar. Si no hay conexión, se guarda y se corrige automáticamente al volver internet.</p>
+        <button type="button" class="primary-btn" id="saveRecordBtn">Corregir y enviar</button>
       </div>
     `;
     const recType = $('#recType');
@@ -676,179 +765,61 @@
     const toggleReplacement = () => replacementField.style.display = recType.value === 'RM' ? 'grid' : 'none';
     recType.addEventListener('change', toggleReplacement);
     toggleReplacement();
-    $('#spellBtn').addEventListener('click', localCorrectObservation);
-    $('#voiceBtn').addEventListener('click', startDictation);
-    $('#keyboardVoiceBtn').addEventListener('click', keyboardDictationFallback);
+
     $('#saveRecordBtn').addEventListener('click', async () => {
-      const payload = {
-        id: record?.id || crypto.randomUUID(),
+      const btn = $('#saveRecordBtn');
+      const rawObservation = $('#recObservation').value.trim();
+      const recordIdValue = record?.id || crypto.randomUUID();
+      const basePayload = {
+        id: recordIdValue,
         date: $('#recDate').value,
         teacher_id: $('#recTeacher').value,
         absence_code: $('#recType').value,
-        observation_original: record?.observation_original || $('#recObservation').value.trim(),
-        observation_corrected: $('#recObservation').dataset.corrected === 'true' ? $('#recObservation').value.trim() : (record?.observation_corrected || null),
-        observation_final: cleanObservationText($('#recObservation').value.trim()),
+        observation_original: rawObservation || null,
+        observation_corrected: null,
+        observation_final: cleanObservationText(rawObservation),
         replacement_name: $('#recType').value === 'RM' ? $('#recReplacement').value.trim() : null,
         has_attachments: record?.has_attachments || false
       };
-      if (!payload.date || !payload.teacher_id || !payload.absence_code) return toast('Faltan datos obligatorios.');
-      await Api.saveAttendance(payload);
+
+      if (!basePayload.date || !basePayload.teacher_id || !basePayload.absence_code) return toast('Faltan datos obligatorios.');
+      if (!rawObservation) return toast('Escribe una observación.');
+
+      btn.disabled = true;
+      let payload = { ...basePayload };
+      let usedAI = false;
+      let queuedAI = false;
+
+      if (navigator.onLine) {
+        try {
+          aiStatus('🪄 Corrigiendo con IA...', true);
+          const corrected = await correctObservationWithAI(rawObservation);
+          payload.observation_corrected = corrected;
+          payload.observation_final = corrected;
+          usedAI = true;
+          aiStatus('✅ Corrección lista. Guardando novedad...', false);
+        } catch (err) {
+          console.warn('No se pudo corregir con IA. Queda pendiente.', err);
+          queuedAI = true;
+          await queueAICorrection({ id: recordIdValue, raw: rawObservation, payload: basePayload, lastError: err?.message || String(err) });
+          aiStatus('🟡 No se pudo corregir ahora. Se guardará y se corregirá luego.', false);
+        }
+      } else {
+        queuedAI = true;
+        await queueAICorrection({ id: recordIdValue, raw: rawObservation, payload: basePayload, lastError: 'Sin conexión' });
+        aiStatus('🟡 Sin conexión. Se guardará y se corregirá luego.', false);
+      }
+
+      const saveResult = await Api.saveAttendance(payload);
       await Api.saveDayRecord({ date: payload.date, status: 'con_novedades', is_school_day: true });
+      btn.disabled = false;
       closeModal();
       await refreshData();
-      toast('Novedad guardada.');
+
+      if (usedAI) toast('Novedad corregida con IA y guardada.');
+      else if (queuedAI || saveResult?.queued) toast('Novedad guardada. La IA la corregirá cuando haya conexión.');
+      else toast('Novedad guardada.');
     });
-  }
-
-  function localCorrectObservation() {
-    const input = $('#recObservation');
-    let text = input.value.trim();
-    if (!text) return toast('Escribe una observación primero.');
-
-    const replacements = [
-      [/\b(wasap|wasapp|wsp|ws|whasap|guasap|guasapp|whatssap)\b/gi, 'WhatsApp'],
-      [/\bmsj\b/gi, 'mensaje'],
-      [/\bmsg\b/gi, 'mensaje'],
-      [/\bxq\b|\bpq\b|\bporq\b|\bpor qué\b/gi, 'porque'],
-      [/\bq\b/gi, 'que'],
-      [/\bx\b/gi, 'por'],
-      [/\bd\b/gi, 'de'],
-      [/\bpa\b/gi, 'para'],
-      [/\bescusa(s)?\b/gi, 'excusa$1'],
-      [/\bexcusas\b/gi, 'excusas'],
-      [/\bexcuza(s)?\b/gi, 'excusa$1'],
-      [/\banoxe\b|\banochee\b/gi, 'anoche'],
-      [/\bubo\b|\buvo\b/gi, 'hubo'],
-      [/\bmndo\b|\bmando\b/gi, 'mandó'],
-      [/\benvio\b/gi, 'envió'],
-      [/\benvia\b/gi, 'envía'],
-      [/\bpresento\b/gi, 'presentó'],
-      [/\bdejo\b/gi, 'dejó'],
-      [/\bpidio\b/gi, 'pidió'],
-      [/\binformo\b/gi, 'informó'],
-      [/\bmedica\b/gi, 'médica'],
-      [/\bmedico\b/gi, 'médico'],
-      [/\bincapacidad medica\b/gi, 'incapacidad médica'],
-      [/\bcita medica\b/gi, 'cita médica'],
-      [/\bfliar\b/gi, 'familiar'],
-      [/\bfcion\b|\bfundacion\b/gi, 'Fundación'],
-      [/\bbquilla\b/gi, 'Barranquilla'],
-      [/\bsantamarta\b/gi, 'Santa Marta']
-    ];
-
-    replacements.forEach(([re, v]) => { text = text.replace(re, v); });
-    text = text
-      .replace(/\s+([,.;:!?])/g, '$1')
-      .replace(/([,.;:!?])([^\s])/g, '$1 $2')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    text = cleanObservationText(text);
-    input.value = text;
-    input.dataset.corrected = 'true';
-    toast('Corrección aplicada. Ejemplo: “No mandó excusa porque anoche no hubo luz.”');
-  }
-
-  function keyboardDictationFallback() {
-    const input = $('#recObservation');
-    const status = $('#voiceStatus');
-    if (!input) return;
-    input.focus();
-    const len = input.value.length;
-    try { input.setSelectionRange(len, len); } catch {}
-    status.textContent = '⌨ Campo listo. Usa el micrófono del teclado Android; no necesita permiso del sitio.';
-    status.classList.remove('hidden');
-    status.classList.remove('listening');
-    toast('Toca el micrófono del teclado Android para dictar.');
-  }
-
-  function startDictation() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const btn = $('#voiceBtn');
-    const input = $('#recObservation');
-    const status = $('#voiceStatus');
-
-    if (!SpeechRecognition) {
-      keyboardDictationFallback();
-      return toast('Este navegador no soporta dictado web. Usa el micrófono del teclado.');
-    }
-
-    if (state.recognition) {
-      state.recognition.stop();
-      return;
-    }
-
-    const rec = new SpeechRecognition();
-    state.recognition = rec;
-    rec.lang = 'es-CO';
-    rec.interimResults = true;
-    rec.continuous = false;
-    rec.maxAlternatives = 1;
-
-    let finalTranscript = '';
-    let dictationHadError = false;
-
-    const setVoiceStatus = (message, active = true) => {
-      status.textContent = message;
-      status.classList.remove('hidden');
-      status.classList.toggle('listening', active);
-      btn.classList.toggle('voice-active', active);
-      btn.textContent = active ? '■ Detener dictado' : '🎙 Dictado web';
-    };
-
-    rec.onstart = () => setVoiceStatus('🎙 Micrófono activo. Empieza a hablar...', true);
-    rec.onspeechstart = () => setVoiceStatus('🟢 Te estoy escuchando...', true);
-    rec.onspeechend = () => setVoiceStatus('🟡 Dejaste de hablar. Cerrando dictado...', true);
-
-    rec.onresult = event => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const part = event.results[i][0].transcript.trim();
-        if (event.results[i].isFinal) finalTranscript += ' ' + part;
-        else interim += ' ' + part;
-      }
-      if (interim.trim()) setVoiceStatus(`🗣 Escuchando: “${interim.trim()}”`, true);
-    };
-
-    rec.onerror = event => {
-      dictationHadError = true;
-      state.recognition = null;
-      btn.classList.remove('voice-active');
-      btn.textContent = '🎙 Dictado web';
-      if (event.error === 'not-allowed') {
-        setVoiceStatus('🔴 Android/Chrome bloqueó el permiso de micrófono. Usa “Mic del teclado” o activa el micrófono desde ajustes del sitio.', false);
-        toast('Permiso de micrófono bloqueado. Usa el micrófono del teclado.');
-        input.focus();
-      } else if (event.error === 'no-speech') {
-        setVoiceStatus('⚪ No escuché voz. Intenta de nuevo o usa el micrófono del teclado.', false);
-        toast('No se detectó voz.');
-      } else {
-        setVoiceStatus('🔴 No se pudo usar el dictado web. Prueba con el micrófono del teclado.', false);
-        toast('No se pudo usar el dictado web.');
-      }
-    };
-
-    rec.onend = () => {
-      if (dictationHadError) {
-        state.recognition = null;
-        return;
-      }
-      if (finalTranscript.trim()) {
-        input.value = appendDictationText(input.value, finalTranscript);
-        setVoiceStatus('✅ Dictado agregado a la observación.', false);
-      } else {
-        setVoiceStatus('⚪ Dictado detenido sin texto.', false);
-      }
-      state.recognition = null;
-      window.setTimeout(() => status.classList.add('hidden'), 2300);
-    };
-
-    try {
-      rec.start();
-    } catch {
-      state.recognition = null;
-      setVoiceStatus('🔴 No se pudo iniciar el dictado web. Usa el micrófono del teclado.', false);
-    }
   }
 
   async function markNoNews(dateStr) {
