@@ -1,0 +1,2 @@
+[functions.correct-observation]
+verify_jwt = false

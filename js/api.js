@@ -199,11 +199,31 @@
       if (!raw) return '';
       if (!navigator.onLine) throw new Error('Sin conexión para corregir con IA.');
 
-      const { data, error } = await client.functions.invoke('correct-observation', {
-        body: { text: raw }
-      });
+      const sessionResult = await client.auth.getSession();
+      const accessToken = sessionResult?.data?.session?.access_token;
+      if (!accessToken) throw new Error('No hay sesión activa para corregir con IA.');
 
-      if (error) throw error;
+      const functionUrl = `${config.supabaseUrl}/functions/v1/correct-observation`;
+      let response;
+      try {
+        response = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': config.supabaseKey,
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ text: raw })
+        });
+      } catch (err) {
+        throw new Error('No se pudo conectar con la Edge Function correct-observation. Revisa que esté desplegada en Supabase y que tenga CORS/JWT configurado.');
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || `La Edge Function respondió con error ${response.status}.`);
+      }
+
       const corrected = String(data?.corrected || data?.text || '').trim();
       if (!corrected) throw new Error('La IA no devolvió texto corregido.');
       return corrected;
