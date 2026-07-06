@@ -677,3 +677,64 @@ h1, h2, h3, p { margin-top: 0; }
   background: var(--line);
   margin: 14px 0;
 }
+
+/* v0.7 ajustes UI solicitados */
+.hero {
+  grid-template-columns: minmax(0, 1fr) clamp(64px, 18vw, 92px);
+  min-height: 132px;
+}
+.hero > div:first-child,
+.weather-face { position: relative; z-index: 1; }
+.weather-face {
+  justify-self: end;
+  align-self: center;
+  font-size: clamp(46px, 13vw, 72px);
+  line-height: 1;
+  text-align: right;
+}
+.hero h2 { max-width: 100%; }
+
+.day-actions-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  margin: 10px 0 12px;
+}
+
+.report-card-btn {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: none !important;
+  min-height: 62px;
+  padding: 12px 14px;
+}
+.report-card-btn strong {
+  color: var(--fuchsia);
+  letter-spacing: -.01em;
+}
+.report-card-btn span {
+  color: var(--muted);
+  opacity: 1;
+}
+.report-card-btn:active { transform: scale(.99); }
+.report-all-btn {
+  background: color-mix(in srgb, var(--fuchsia) 7%, var(--surface)) !important;
+  border-color: color-mix(in srgb, var(--fuchsia) 42%, var(--line)) !important;
+}
+.teacher-info-only { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+@media (max-width: 720px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) 68px;
+    gap: 8px;
+    min-height: 126px;
+  }
+  .hero h2 { font-size: clamp(24px, 7vw, 30px); }
+  .hero p { font-size: 13px; }
+  .weather-face {
+    font-size: 54px;
+    justify-self: end;
+  }
+  .teacher-info-only { grid-template-columns: 1fr; }
+}

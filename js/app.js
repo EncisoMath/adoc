@@ -457,7 +457,6 @@
 
       <div class="panel" style="margin-top:12px;">
         <h3>Inasistencias por día</h3>
-        <p class="tiny muted">Eje X: días del mes · Eje Y: cantidad de docentes con novedad.</p>
         ${renderDailyAbsenceChart(state.viewDate)}
       </div>
     `;
@@ -512,7 +511,6 @@
     $('#tabCalendario').innerHTML = `
       <div class="calendar-title-row">
         <h2>${escapeHtml(title)}</h2>
-        <p class="tiny muted">El mes se cambia desde el selector superior.</p>
       </div>
       <div class="calendar-grid">
         ${['D','L','M','M','J','V','S'].map(d => `<div class="weekday">${d}</div>`).join('')}
@@ -623,10 +621,10 @@
     const content = $('#modalContent');
     content.innerHTML = `
       <h2>${escapeHtml(fmtLong(dateStr))}</h2>
-      <div class="actions-row">
-        <button type="button" class="primary-btn" id="addRecordBtn">Registrar novedad docente</button>
-        <button type="button" class="secondary-btn" id="dayNoNewsBtn">Marcar sin novedades</button>
-        <button type="button" class="ghost-btn" id="institutionalBtn">Evento institucional</button>
+      <div class="day-actions-list">
+        <button type="button" class="report-btn report-card-btn" id="addRecordBtn"><strong>Registrar novedad docente</strong><span>Agrega una inasistencia, permiso, reemplazo u otra novedad del día.</span></button>
+        <button type="button" class="report-btn report-card-btn" id="dayNoNewsBtn"><strong>Marcar sin novedades</strong><span>Confirma que este día fue revisado y no hubo novedades docentes.</span></button>
+        <button type="button" class="report-btn report-card-btn" id="institutionalBtn"><strong>Evento institucional</strong><span>Registra paro, asamblea, reunión, comisión, festivo u otro evento del colegio.</span></button>
       </div>
       ${day && (day.status === 'institucional' || day.status === 'no_laboral' || day.observation) ? `<div class="panel">${day.institutional_type ? `<strong>${escapeHtml(day.institutional_type)}</strong><br>` : ''}<span class="muted">${escapeHtml(day.observation || day.institutional_title || '')}</span></div>` : ''}
       <h3>Registros del día</h3>
@@ -983,16 +981,10 @@
       </div>
       <div class="panel teacher-detail-page">
         <h2>${escapeHtml(t.full_name)}</h2>
-        <p class="muted">Detalle normal del docente. La gráfica usa el año ${selectedYear}; el contador mensual usa ${escapeHtml(fmtMonthYear(state.viewDate))}.</p>
-        <div class="teacher-detail-grid">
+        <div class="teacher-detail-grid teacher-info-only">
           <div class="info-chip"><small>Cargo</small><strong>${escapeHtml(t.role || 'Docente')}</strong></div>
           <div class="info-chip"><small>Sede</small><strong>${escapeHtml(t.campus || 'Sin sede')}</strong></div>
           <div class="info-chip"><small>Estado</small><strong>${t.active !== false ? 'Activa' : 'Inactiva'}</strong></div>
-          <div class="info-chip"><small>Mes seleccionado</small><strong>${monthRecs.length}</strong></div>
-          <div class="info-chip"><small>Total año ${selectedYear}</small><strong>${yearRecs.length}</strong></div>
-          <div class="info-chip"><small>Total histórico</small><strong>${recs.length}</strong></div>
-          <div class="info-chip"><small>Primer registro</small><strong>${first ? escapeHtml(fmtShort(first)) : 'Sin registros'}</strong></div>
-          <div class="info-chip"><small>Último registro</small><strong>${last ? escapeHtml(fmtShort(last)) : 'Sin registros'}</strong></div>
         </div>
         ${t.notes ? `<div class="compact-panel"><h3>Notas</h3><p>${escapeHtml(t.notes)}</p></div>` : ''}
       </div>
@@ -1001,7 +993,6 @@
         <div class="section-title-row one-col-title">
           <div>
             <h3>Inasistencias por mes</h3>
-            <p class="tiny muted">Eje X: meses · Eje Y: cantidad de inasistencias de este docente en ${selectedYear}.</p>
           </div>
         </div>
         <div id="teacherMonthlyChartWrap">${renderTeacherMonthlyChart(recs, selectedYear)}</div>
@@ -1074,20 +1065,18 @@
     $('#tabPdf').innerHTML = `
       <div class="panel">
         <h2>Reportes</h2>
-        <p class="muted">El mes del reporte es ${escapeHtml(MONTHS[m])} ${y}. Cámbialo desde el selector superior.</p>
         <div class="grid three summary-three">
           <div class="stat-card"><small>Registros</small><strong>${stats.total}</strong></div>
           <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
           <div class="stat-card"><small>Institucionales</small><strong>${stats.institutionalDays}</strong></div>
         </div>
         <div class="pdf-actions-list">
-          <button class="report-btn primary-btn" id="printPlanilla"><strong>Planilla mensual</strong><span>Calendario oficial del mes: docentes por filas, días por columnas, códigos, totales, observaciones, leyenda y firmas.</span></button>
-          <button class="report-btn secondary-btn" id="printDetalle"><strong>Detalle mensual</strong><span>Listado vertical fila a fila con fecha, docente, tipo de inasistencia, observación y reemplazo si aplica.</span></button>
-          <button class="report-btn ghost-btn" id="printResumen"><strong>Resumen por docente</strong><span>Informe vertical organizado por docente, con sus novedades del mes agrupadas para revisión individual.</span></button>
+          <button class="report-btn report-card-btn" id="printPlanilla"><strong>Planilla mensual</strong><span>Calendario oficial del mes: docentes por filas, días por columnas, códigos, totales, observaciones, leyenda y firmas.</span></button>
+          <button class="report-btn report-card-btn" id="printDetalle"><strong>Detalle mensual</strong><span>Listado vertical fila a fila con fecha, docente, tipo de inasistencia, observación y reemplazo si aplica.</span></button>
+          <button class="report-btn report-card-btn" id="printResumen"><strong>Resumen por docente</strong><span>Informe vertical organizado por docente, con sus novedades del mes agrupadas para revisión individual.</span></button>
         </div>
         <div class="report-separator"></div>
-        <button class="report-btn primary-btn full" id="printTodo"><strong>Generar todo en uno</strong><span>Une planilla mensual, detalle mensual y resumen por docente en un solo documento listo para imprimir o guardar como PDF.</span></button>
-        <p class="tiny muted">Los reportes usan Calibri. Planilla en oficio horizontal; detalle y resumen en oficio vertical.</p>
+        <button class="report-btn report-card-btn report-all-btn full" id="printTodo"><strong>Generar todo en uno</strong><span>Une planilla mensual, detalle mensual y resumen por docente en un solo documento listo para imprimir o guardar como PDF.</span></button>
       </div>`;
     $('#printPlanilla').addEventListener('click', () => printReport('planilla'));
     $('#printDetalle').addEventListener('click', () => printReport('detalle'));

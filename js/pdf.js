@@ -28,10 +28,14 @@
     const isWeekendDay = date.getDay() === 0 || date.getDay() === 6;
     const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || dayRec?.institutional_type === 'Festivo';
     const isInst = dayRec?.status === 'institucional';
-    if (isInst) return { cell: 'institutional day-col', col: 'institutional-col', label: dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional', institutional: true };
-    if (isHoliday) return { cell: 'holiday day-col', col: 'holiday-col', label: WEEK[date.getDay()], institutional: false };
-    if (isWeekendDay) return { cell: 'weekend day-col', col: 'weekend-col', label: WEEK[date.getDay()], institutional: false };
-    return { cell: 'day-col', col: 'day-col', label: WEEK[date.getDay()], institutional: false };
+    if (isInst) return { cell: 'institutional day-col', col: 'institutional-col', label: dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional', institutional: true, bg: '#bdd7ee' };
+    if (isHoliday) return { cell: 'holiday day-col', col: 'holiday-col', label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
+    if (isWeekendDay) return { cell: 'weekend day-col', col: 'weekend-col', label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
+    return { cell: 'day-col', col: 'day-col', label: WEEK[date.getDay()], institutional: false, bg: '' };
+  }
+
+  function bgStyle(meta) {
+    return meta.bg ? ` style="background-color:${meta.bg} !important;"` : '';
   }
 
   function reportHeader(settings, title) {
@@ -93,6 +97,11 @@
         .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 9px; }
         .page-break { page-break-before: always; }
         .portrait .report-table { font-size: 10px; }
+
+        .resumen-docente-table { table-layout: fixed; width: 100%; }
+        .resumen-date-col { width: 26mm; }
+        .resumen-type-col { width: 42mm; }
+        .resumen-obs-col { width: auto; }
         .portrait h3 { break-after: avoid; }
         @media print { button { display: none; } }
     `;
@@ -124,7 +133,7 @@
     });
 
     const headDays = dayMeta.map(meta =>
-      `<th class="${meta.cell}"><div>${meta.day}</div><div>${escapeHtml(WEEK[meta.date.getDay()])}</div>${meta.institutional ? `<div class="vertical">${escapeHtml(meta.label)}</div>` : ''}</th>`
+      `<th class="${meta.cell}"${bgStyle(meta)}><div>${meta.day}</div><div>${escapeHtml(WEEK[meta.date.getDay()])}</div>${meta.institutional ? `<div class="vertical">${escapeHtml(meta.label)}</div>` : ''}</th>`
     ).join('');
 
     const body = activeTeachers.map(t => {
@@ -137,7 +146,7 @@
           counts[r.absence_code] = (counts[r.absence_code] || 0) + 1;
           if (r.observation_final) obs.push(`${r.observation_final}${r.replacement_name ? ' Reemplazo: ' + r.replacement_name : ''}.`);
         });
-        return `<td class="${meta.cell}" style="text-align:center;font-weight:800;">${escapeHtml(codeText)}</td>`;
+        return `<td class="${meta.cell}" style="text-align:center;font-weight:800;${meta.bg ? `background-color:${meta.bg} !important;` : ''}">${escapeHtml(codeText)}</td>`;
       }).join('');
       const summary = Object.entries(counts).map(([code, count]) => `${code}: ${count}`).join('<br>') || '0';
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -171,7 +180,7 @@
     });
     const sections = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es')).map(([name, recs]) => `
       <h3 style="font-size:12px;margin:16px 0 5px;">${escapeHtml(name)} · Total: ${recs.length}</h3>
-      <table class="report-table" style="font-size:9px;"><thead><tr><th>FECHA</th><th>TIPO</th><th>OBSERVACIÓN</th></tr></thead><tbody>
+      <table class="report-table resumen-docente-table" style="font-size:9px;"><colgroup><col class="resumen-date-col"><col class="resumen-type-col"><col class="resumen-obs-col"></colgroup><thead><tr><th>FECHA</th><th>TIPO</th><th>OBSERVACIÓN</th></tr></thead><tbody>
         ${recs.sort((a, b) => a.date.localeCompare(b.date)).map(r => `<tr><td>${fmtDate(r.date)}</td><td>${escapeHtml(typeName(r.absence_code, types))}</td><td>${escapeHtml(r.observation_final || '')}${r.replacement_name ? ` Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</td></tr>`).join('')}
       </tbody></table>`).join('');
     return `<div class="report-page portrait">${reportHeader(settings, title)}${sections || '<p>Sin registros en el mes.</p>'}${signatures(settings)}</div>`;
