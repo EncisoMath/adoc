@@ -53,12 +53,19 @@
     const s = settings || {};
     const logoSrc = new URL('icons/logocole.png', window.location.href).href;
     return `
-      <div style="text-align:center; margin-bottom:12px;">
-        <img src="${logoSrc}" alt="Logo institucional" style="width:74px;height:74px;object-fit:contain;display:block;margin:0 auto 6px;">
-        <h2 style="font-size:14px; margin:0; font-weight:900;">${escapeHtml(s.letterhead_bold || s.institution_name || 'INSTITUCIÓN EDUCATIVA DEPARTAMENTAL GABRIEL GARCÍA MÁRQUEZ')}</h2>
-        <div style="font-size:11px; margin-top:3px;">${escapeHtml(s.letterhead_normal || 'ARACATACA - MAGDALENA')}</div>
-        <div style="font-size:10px; margin-top:3px;">NIT. ${escapeHtml(s.nit || '800096058-1')} &nbsp; DANE ${escapeHtml(s.dane || '147053000151')}</div>
-        <h1 style="font-size:15px; margin:12px 0 0; font-weight:900;">${escapeHtml(title)}</h1>
+      <div style="margin-bottom:12px;">
+        <div style="display:grid; grid-template-columns:84px 1fr 84px; align-items:center; column-gap:10px; margin-bottom:8px;">
+          <div style="display:flex; justify-content:flex-start; align-items:center;">
+            <img src="${logoSrc}" alt="Logo institucional" style="width:74px;height:74px;object-fit:contain;display:block;">
+          </div>
+          <div style="text-align:center;">
+            <h2 style="font-size:14px; margin:0; font-weight:900;">${escapeHtml(s.letterhead_bold || s.institution_name || 'INSTITUCIÓN EDUCATIVA DEPARTAMENTAL GABRIEL GARCÍA MÁRQUEZ')}</h2>
+            <div style="font-size:11px; margin-top:3px;">${escapeHtml(s.letterhead_normal || 'ARACATACA - MAGDALENA')}</div>
+            <div style="font-size:10px; margin-top:3px;">NIT. ${escapeHtml(s.nit || '800096058-1')} &nbsp; DANE ${escapeHtml(s.dane || '147053000151')}</div>
+          </div>
+          <div></div>
+        </div>
+        <h1 style="font-size:15px; margin:10px 0 0; font-weight:900; text-align:center;">${escapeHtml(title)}</h1>
       </div>
     `;
   }
