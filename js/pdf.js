@@ -38,6 +38,17 @@
     return meta.bg ? ` style="background-color:${meta.bg} !important;"` : '';
   }
 
+  function absenceAlertColor(total) {
+    if (total >= 9) return '#f87171';
+    if (total > 6) return '#fb923c';
+    if (total > 3) return '#fde047';
+    return '';
+  }
+
+  function cellBgStyle(color) {
+    return color ? `background-color:${color} !important;` : '';
+  }
+
   function reportHeader(settings, title) {
     const s = settings || {};
     return `
@@ -139,18 +150,23 @@
     const body = activeTeachers.map(t => {
       const counts = {};
       const obs = [];
-      const cells = dayMeta.map(meta => {
+      const dayRows = dayMeta.map(meta => {
         const recs = byTeacherDate.get(`${t.id}|${meta.iso}`) || [];
         const codeText = recs.map(r => r.absence_code).join(' / ');
         recs.forEach(r => {
           counts[r.absence_code] = (counts[r.absence_code] || 0) + 1;
           if (r.observation_final) obs.push(`${r.observation_final}${r.replacement_name ? ' Reemplazo: ' + r.replacement_name : ''}.`);
         });
-        return `<td class="${meta.cell}" style="text-align:center;font-weight:800;${meta.bg ? `background-color:${meta.bg} !important;` : ''}">${escapeHtml(codeText)}</td>`;
-      }).join('');
+        return { meta, codeText };
+      });
       const summary = Object.entries(counts).map(([code, count]) => `${code}: ${count}`).join('<br>') || '0';
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
-      return `<tr><td class="teacher-col" style="font-weight:800;">${escapeHtml(t.full_name)}</td>${cells}<td class="summary-col">${summary}</td><td class="total-col" style="text-align:center;font-weight:900;">${total}</td><td class="obs-col">${escapeHtml(obs.join(' '))}</td></tr>`;
+      const alertColor = absenceAlertColor(total);
+      const cells = dayRows.map(({ meta, codeText }) => {
+        const bg = codeText ? alertColor : meta.bg;
+        return `<td class="${meta.cell}" style="text-align:center;font-weight:800;${cellBgStyle(bg)}">${escapeHtml(codeText)}</td>`;
+      }).join('');
+      return `<tr><td class="teacher-col" style="font-weight:800;${cellBgStyle(alertColor)}">${escapeHtml(t.full_name)}</td>${cells}<td class="summary-col">${summary}</td><td class="total-col" style="text-align:center;font-weight:900;">${total}</td><td class="obs-col">${escapeHtml(obs.join(' '))}</td></tr>`;
     }).join('');
 
     const legend = types.map(t => `<span><strong>${escapeHtml(t.code)}:</strong> ${escapeHtml(t.name)}</span>`).join('');
