@@ -738,3 +738,98 @@ h1, h2, h3, p { margin-top: 0; }
   }
   .teacher-info-only { grid-template-columns: 1fr; }
 }
+
+
+/* v0.9 - botones fucsia reales + modal sin espacio superior muerto */
+.modal-box {
+  position: relative;
+  padding: 16px !important;
+}
+.modal-close {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  margin-left: 0 !important;
+}
+.modal h2,
+#modalContent > h2 {
+  margin-top: 0 !important;
+  padding-right: 46px !important;
+}
+
+/* Botones grandes del selector de día: soporta v0.6, v0.7 y v0.8 */
+#modalContent > h2 + .actions-row {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 9px !important;
+  margin: 10px 0 12px !important;
+}
+#modalContent > h2 + .actions-row > button,
+#modalContent .day-actions-list > button,
+#modalContent .day-actions-list .report-btn,
+#tabPdf .report-btn,
+.pdf-actions-list .report-btn,
+.report-btn.report-card-btn,
+.report-all-btn,
+#printPlanilla,
+#printDetalle,
+#printResumen,
+#printTodo {
+  width: 100% !important;
+  min-height: 62px !important;
+  padding: 12px 14px !important;
+  display: grid !important;
+  align-content: center !important;
+  justify-items: start !important;
+  gap: 4px !important;
+  text-align: left !important;
+  white-space: normal !important;
+  line-height: 1.25 !important;
+  border-radius: var(--radius) !important;
+  background: var(--fuchsia) !important;
+  color: #fff !important;
+  border: 1px solid color-mix(in srgb, var(--fuchsia) 88%, #000 12%) !important;
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--fuchsia) 22%, transparent) !important;
+}
+#modalContent > h2 + .actions-row > button,
+#modalContent .day-actions-list > button {
+  flex: unset !important;
+}
+#modalContent > h2 + .actions-row > button strong,
+#modalContent .day-actions-list strong,
+#tabPdf .report-btn strong,
+.pdf-actions-list .report-btn strong,
+.report-btn.report-card-btn strong,
+.report-all-btn strong,
+#printPlanilla strong,
+#printDetalle strong,
+#printResumen strong,
+#printTodo strong {
+  color: #fff !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+}
+#modalContent > h2 + .actions-row > button span,
+#modalContent .day-actions-list span,
+#tabPdf .report-btn span,
+.pdf-actions-list .report-btn span,
+.report-btn.report-card-btn span,
+.report-all-btn span,
+#printPlanilla span,
+#printDetalle span,
+#printResumen span,
+#printTodo span {
+  color: rgba(255,255,255,.9) !important;
+  opacity: 1 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+#modalContent > h2 + .actions-row > button:active,
+#modalContent .day-actions-list > button:active,
+#tabPdf .report-btn:active,
+.pdf-actions-list .report-btn:active,
+.report-btn.report-card-btn:active,
+.report-all-btn:active {
+  transform: scale(.99) !important;
+  filter: brightness(.96) !important;
+}
