@@ -1,23 +1,24 @@
 Cambios incluidos:
-- Integración de logo de app en login, topbar, favicon y manifest.
-- Integración de logo institucional en encabezado de PDFs.
-- Integración de icono/badge de notificación para la prueba de notificaciones.
-- Actualización de service worker para cachear los nuevos assets.
+
+1. Ajustes / notificaciones
+- El boton de Ajustes ahora queda como "Notificacion de prueba".
+- Al tocarlo pide permiso y muestra una notificacion real desde el service worker cuando sea posible.
+- El service worker queda preparado con notificationclick y listener push basico para fase futura.
+
+2. Dictado en registrar novedad
+- El boton anterior queda como "Dictado web".
+- Se agrega "Mic del teclado" como alternativa para Android cuando Chrome bloquea el permiso de microfono por superposiciones/burbujas.
+- Si Android/Chrome bloquea el permiso, la app ya no deja un mensaje generico: muestra la alternativa del teclado.
+
+3. PDF directo con jsPDF
+- Los reportes ya no abren HTML + asistente de impresion.
+- Se cargan jsPDF y jsPDF AutoTable por CDN desde index.html.
+- Planilla mensual, detalle mensual, resumen por docente y todo-en-uno descargan PDF directo.
+- La columna T de la planilla recibe el mismo formato condicional por total:
+  amarillo si total > 3, naranja si total > 6, rojo si total >= 9.
 
 Archivos tocados:
 - index.html
-- manifest.json
 - service-worker.js
-- css/styles.css
 - js/app.js
 - js/pdf.js
-- icons/logoapp.png
-- icons/logocole.png
-- icons/notificacion.png
-- icons/icon-192.png
-- icons/icon-512.png
-- icons/maskable-192.png
-- icons/maskable-512.png
-- icons/apple-touch-icon.png
-- icons/notification-icon-192.png
-- icons/notification-badge-96.png

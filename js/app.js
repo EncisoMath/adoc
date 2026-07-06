@@ -664,7 +664,8 @@
         <label class="field"><span>Observación</span><textarea id="recObservation" placeholder="Ej: Envió mensaje por WhatsApp informando cita médica.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
         <div class="actions-row">
           <button type="button" class="ghost-btn" id="spellBtn">Corregir redacción</button>
-          <button type="button" class="ghost-btn" id="voiceBtn">🎙 Dictar</button>
+          <button type="button" class="ghost-btn" id="voiceBtn">🎙 Dictado web</button>
+          <button type="button" class="ghost-btn" id="keyboardVoiceBtn">⌨ Mic del teclado</button>
         </div>
         <div id="voiceStatus" class="voice-status hidden" aria-live="polite"></div>
         <button type="button" class="primary-btn" id="saveRecordBtn">Guardar</button>
@@ -677,6 +678,7 @@
     toggleReplacement();
     $('#spellBtn').addEventListener('click', localCorrectObservation);
     $('#voiceBtn').addEventListener('click', startDictation);
+    $('#keyboardVoiceBtn').addEventListener('click', keyboardDictationFallback);
     $('#saveRecordBtn').addEventListener('click', async () => {
       const payload = {
         id: record?.id || crypto.randomUUID(),
@@ -747,6 +749,19 @@
     toast('Corrección aplicada. Ejemplo: “No mandó excusa porque anoche no hubo luz.”');
   }
 
+  function keyboardDictationFallback() {
+    const input = $('#recObservation');
+    const status = $('#voiceStatus');
+    if (!input) return;
+    input.focus();
+    const len = input.value.length;
+    try { input.setSelectionRange(len, len); } catch {}
+    status.textContent = '⌨ Campo listo. Usa el micrófono del teclado Android; no necesita permiso del sitio.';
+    status.classList.remove('hidden');
+    status.classList.remove('listening');
+    toast('Toca el micrófono del teclado Android para dictar.');
+  }
+
   function startDictation() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const btn = $('#voiceBtn');
@@ -754,7 +769,8 @@
     const status = $('#voiceStatus');
 
     if (!SpeechRecognition) {
-      return toast('Este navegador no soporta dictado local. Luego usaremos OpenAI por Supabase.');
+      keyboardDictationFallback();
+      return toast('Este navegador no soporta dictado web. Usa el micrófono del teclado.');
     }
 
     if (state.recognition) {
@@ -770,13 +786,14 @@
     rec.maxAlternatives = 1;
 
     let finalTranscript = '';
+    let dictationHadError = false;
 
     const setVoiceStatus = (message, active = true) => {
       status.textContent = message;
       status.classList.remove('hidden');
       status.classList.toggle('listening', active);
       btn.classList.toggle('voice-active', active);
-      btn.textContent = active ? '■ Detener dictado' : '🎙 Dictar';
+      btn.textContent = active ? '■ Detener dictado' : '🎙 Dictado web';
     };
 
     rec.onstart = () => setVoiceStatus('🎙 Micrófono activo. Empieza a hablar...', true);
@@ -794,11 +811,28 @@
     };
 
     rec.onerror = event => {
-      setVoiceStatus('🔴 No se pudo usar el micrófono. Revisa permisos.', false);
-      toast(event.error === 'not-allowed' ? 'Permiso de micrófono denegado.' : 'No se pudo usar el micrófono.');
+      dictationHadError = true;
+      state.recognition = null;
+      btn.classList.remove('voice-active');
+      btn.textContent = '🎙 Dictado web';
+      if (event.error === 'not-allowed') {
+        setVoiceStatus('🔴 Android/Chrome bloqueó el permiso de micrófono. Usa “Mic del teclado” o activa el micrófono desde ajustes del sitio.', false);
+        toast('Permiso de micrófono bloqueado. Usa el micrófono del teclado.');
+        input.focus();
+      } else if (event.error === 'no-speech') {
+        setVoiceStatus('⚪ No escuché voz. Intenta de nuevo o usa el micrófono del teclado.', false);
+        toast('No se detectó voz.');
+      } else {
+        setVoiceStatus('🔴 No se pudo usar el dictado web. Prueba con el micrófono del teclado.', false);
+        toast('No se pudo usar el dictado web.');
+      }
     };
 
     rec.onend = () => {
+      if (dictationHadError) {
+        state.recognition = null;
+        return;
+      }
       if (finalTranscript.trim()) {
         input.value = appendDictationText(input.value, finalTranscript);
         setVoiceStatus('✅ Dictado agregado a la observación.', false);
@@ -813,7 +847,7 @@
       rec.start();
     } catch {
       state.recognition = null;
-      setVoiceStatus('🔴 No se pudo iniciar el dictado.', false);
+      setVoiceStatus('🔴 No se pudo iniciar el dictado web. Usa el micrófono del teclado.', false);
     }
   }
 
@@ -1133,11 +1167,11 @@
         <div class="actions-row">
           <button class="primary-btn" id="saveSettingsBtn">Guardar ajustes</button>
           <button class="secondary-btn" id="settingsSyncBtn">Actualizar / sincronizar</button>
-          <button class="secondary-btn" id="askNotificationsBtn">Activar notificaciones</button>
+          <button class="secondary-btn" id="testNotificationBtn">Notificación de prueba</button>
           <button class="ghost-btn" id="exportBackupBtn">Exportar respaldo JSON</button>
           <button class="danger-btn" id="settingsLogoutBtn">Cerrar sesión en este dispositivo</button>
         </div>
-        <p class="tiny muted">Notificaciones push reales + correos automáticos + agente OpenAI van en la siguiente fase con Edge Functions.</p>
+        <p class="tiny muted">El botón de notificación solo prueba permisos e iconos en este dispositivo. Las push automáticas reales van luego con VAPID + Supabase Edge Functions.</p>
       </div>`;
     $('#saveSettingsBtn').addEventListener('click', saveSettings);
     $('#settingsSyncBtn').addEventListener('click', syncNow);
@@ -1147,7 +1181,7 @@
       state.session = null;
       showLogin();
     });
-    $('#askNotificationsBtn').addEventListener('click', askNotifications);
+    $('#testNotificationBtn').addEventListener('click', sendTestNotification);
     $('#exportBackupBtn').addEventListener('click', exportBackup);
   }
 
@@ -1175,15 +1209,16 @@
     toast('Ajustes guardados.');
   }
 
-  async function askNotifications() {
+  async function sendTestNotification() {
     if (!('Notification' in window)) return toast('Este navegador no soporta notificaciones.');
     const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return toast('No se activaron las notificaciones.');
+    if (permission !== 'granted') return toast('No se pudo enviar la notificación de prueba.');
 
     const options = {
-      body: 'Recordatorios activados en este dispositivo.',
+      body: 'Prueba correcta: las notificaciones de Asistencia GGM se ven en este dispositivo.',
       icon: APP_ICON_URL,
-      badge: NOTIFICATION_BADGE_URL
+      badge: NOTIFICATION_BADGE_URL,
+      data: { url: './' }
     };
 
     try {
@@ -1194,10 +1229,10 @@
       } else {
         new Notification('Asistencia GGM', options);
       }
-      toast('Notificaciones activadas.');
+      toast('Notificación de prueba enviada.');
     } catch (err) {
       console.warn('No se pudo mostrar la notificación de prueba:', err);
-      toast('Permiso concedido. La notificación de prueba no se pudo mostrar.');
+      toast('Permiso concedido, pero la prueba no se pudo mostrar.');
     }
   }
 

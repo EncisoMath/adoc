@@ -1,6 +1,8 @@
 (function () {
   const MONTHS = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const MONTHS_FILE = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const WEEK = ['D','L','M','M','J','V','S'];
+  let logoDataUrlPromise = null;
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
@@ -23,19 +25,24 @@
     return `${MONTHS[monthIndex]} ${year}`;
   }
 
-  function dayClassesForPdf(date, dayRec, holidaySet) {
-    const iso = date.toISOString().slice(0, 10);
-    const isWeekendDay = date.getDay() === 0 || date.getDay() === 6;
-    const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || dayRec?.institutional_type === 'Festivo';
-    const isInst = dayRec?.status === 'institucional';
-    if (isInst) return { cell: 'institutional day-col', col: 'institutional-col', label: dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional', institutional: true, bg: '#bdd7ee' };
-    if (isHoliday) return { cell: 'holiday day-col', col: 'holiday-col', label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
-    if (isWeekendDay) return { cell: 'weekend day-col', col: 'weekend-col', label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
-    return { cell: 'day-col', col: 'day-col', label: WEEK[date.getDay()], institutional: false, bg: '' };
+  function reportFileName(prefix, year, monthIndex) {
+    return `${prefix}_Asistencia_GGM_${MONTHS_FILE[monthIndex]}_${year}.pdf`;
   }
 
-  function bgStyle(meta) {
-    return meta.bg ? ` style="background-color:${meta.bg} !important;"` : '';
+  function getJsPdf() {
+    const Ctor = window.jspdf?.jsPDF;
+    if (!Ctor) throw new Error('jsPDF no esta cargado. Revisa la conexion a jsdelivr o el orden de scripts.');
+    return Ctor;
+  }
+
+  function hasAutoTable(doc) {
+    return typeof doc.autoTable === 'function';
+  }
+
+  function hexToRgb(hex) {
+    const value = String(hex || '').replace('#', '').trim();
+    if (value.length !== 6) return null;
+    return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
   }
 
   function absenceAlertColor(total) {
@@ -45,98 +52,110 @@
     return '';
   }
 
-  function cellBgStyle(color) {
-    return color ? `background-color:${color} !important;` : '';
+  function dayClassesForPdf(date, dayRec, holidaySet) {
+    const iso = date.toISOString().slice(0, 10);
+    const isWeekendDay = date.getDay() === 0 || date.getDay() === 6;
+    const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || dayRec?.institutional_type === 'Festivo';
+    const isInst = dayRec?.status === 'institucional';
+    if (isInst) return { label: dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional', institutional: true, bg: '#bdd7ee' };
+    if (isHoliday) return { label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
+    if (isWeekendDay) return { label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
+    return { label: WEEK[date.getDay()], institutional: false, bg: '' };
   }
 
-  function reportHeader(settings, title) {
+  function imageToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function loadLogoDataUrl() {
+    if (!logoDataUrlPromise) {
+      const url = new URL('icons/logocole.png', window.location.href).href;
+      logoDataUrlPromise = fetch(url)
+        .then(res => res.ok ? res.blob() : null)
+        .then(blob => blob ? imageToDataUrl(blob) : null)
+        .catch(() => null);
+    }
+    return logoDataUrlPromise;
+  }
+
+  function createDoc(orientation = 'landscape') {
+    const JsPdf = getJsPdf();
+    const format = orientation === 'landscape' ? [330, 215] : [215, 330];
+    return new JsPdf({ orientation, unit: 'mm', format });
+  }
+
+  function drawHeader(doc, settings, title, logoDataUrl, orientation = 'landscape') {
     const s = settings || {};
-    const logoSrc = new URL('icons/logocole.png', window.location.href).href;
-    return `
-      <div style="margin-bottom:12px;">
-        <div style="display:grid; grid-template-columns:84px 1fr 84px; align-items:center; column-gap:10px; margin-bottom:8px;">
-          <div style="display:flex; justify-content:flex-start; align-items:center;">
-            <img src="${logoSrc}" alt="Logo institucional" style="width:74px;height:74px;object-fit:contain;display:block;">
-          </div>
-          <div style="text-align:center;">
-            <h2 style="font-size:14px; margin:0; font-weight:900;">${escapeHtml(s.letterhead_bold || s.institution_name || 'INSTITUCIÓN EDUCATIVA DEPARTAMENTAL GABRIEL GARCÍA MÁRQUEZ')}</h2>
-            <div style="font-size:11px; margin-top:3px;">${escapeHtml(s.letterhead_normal || 'ARACATACA - MAGDALENA')}</div>
-            <div style="font-size:10px; margin-top:3px;">NIT. ${escapeHtml(s.nit || '800096058-1')} &nbsp; DANE ${escapeHtml(s.dane || '147053000151')}</div>
-          </div>
-          <div></div>
-        </div>
-        <h1 style="font-size:15px; margin:10px 0 0; font-weight:900; text-align:center;">${escapeHtml(title)}</h1>
-      </div>
-    `;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const left = orientation === 'landscape' ? 7 : 9;
+    const logoSize = orientation === 'landscape' ? 20 : 22;
+    const top = orientation === 'landscape' ? 7 : 10;
+
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, 'PNG', left, top, logoSize, logoSize); } catch (err) { console.warn('Logo PDF', err); }
+    }
+
+    doc.setTextColor(17, 17, 17);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(orientation === 'landscape' ? 10.5 : 11.5);
+    doc.text(s.letterhead_bold || s.institution_name || 'INSTITUCION EDUCATIVA DEPARTAMENTAL GABRIEL GARCIA MARQUEZ', pageWidth / 2, top + 7, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(orientation === 'landscape' ? 8.4 : 9.2);
+    doc.text(s.letterhead_normal || 'ARACATACA - MAGDALENA', pageWidth / 2, top + 13, { align: 'center' });
+    doc.setFontSize(orientation === 'landscape' ? 7.8 : 8.4);
+    doc.text(`NIT. ${s.nit || '800096058-1'}   DANE ${s.dane || '147053000151'}`, pageWidth / 2, top + 18, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(orientation === 'landscape' ? 12 : 13);
+    doc.text(title, pageWidth / 2, top + 30, { align: 'center' });
+    return top + 36;
   }
 
-  function signatures(settings) {
+  function addSignatures(doc, settings, y) {
     const s = settings || {};
-    return `
-      <div class="report-signatures">
-        <div>
-          <strong>${escapeHtml(s.coordinator_name || 'Madeleine Blanco Manotas')}</strong><br>
-          <span>${escapeHtml(s.coordinator_title || 'Coordinadora')}</span>
-        </div>
-        <div>
-          <strong>${escapeHtml(s.rector_name || 'Shirly Luna')}</strong><br>
-          <span>${escapeHtml(s.rector_title || 'Rectora')}</span>
-        </div>
-      </div>
-    `;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    if (y > pageHeight - 36) {
+      doc.addPage(doc.internal.pageSize.getWidth() > doc.internal.pageSize.getHeight() ? [330, 215] : [215, 330], doc.internal.pageSize.getWidth() > doc.internal.pageSize.getHeight() ? 'landscape' : 'portrait');
+      y = 52;
+    }
+    const x1 = pageWidth * 0.28;
+    const x2 = pageWidth * 0.72;
+    const lineW = 70;
+    doc.setDrawColor(17, 17, 17);
+    doc.setLineWidth(0.2);
+    doc.line(x1 - lineW / 2, y, x1 + lineW / 2, y);
+    doc.line(x2 - lineW / 2, y, x2 + lineW / 2, y);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text(s.coordinator_name || 'Madeleine Blanco Manotas', x1, y + 5, { align: 'center' });
+    doc.text(s.rector_name || 'Shirly Luna', x2, y + 5, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(s.coordinator_title || 'Coordinadora', x1, y + 10, { align: 'center' });
+    doc.text(s.rector_title || 'Rectora', x2, y + 10, { align: 'center' });
+    return y + 14;
   }
 
-  function basePrintStyles() {
-    return `
-        @page landscape-page { size: 330mm 215mm; margin: 7mm; }
-        @page portrait-page { size: 215mm 330mm; margin: 11mm 9mm; }
-        @page { size: 330mm 215mm; margin: 7mm; }
-        * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        body { font-family: Calibri, Arial, sans-serif; margin: 0; color: #111; background: #fff; }
-        .report-page { background: #fff; padding: 0; page-break-after: always; }
-        .report-page:last-child { page-break-after: auto; }
-        .report-page.landscape { page: landscape-page; }
-        .report-page.portrait { page: portrait-page; }
-        .report-table { width: 100%; border-collapse: collapse; font-size: 8.4px; }
-        .report-table th, .report-table td { border: 1px solid #333; padding: 2px 3px; vertical-align: middle; }
-        .report-table th { background-color: #f1f1f1 !important; font-weight: 900; }
-        .planilla-table { table-layout: fixed; }
-        .planilla-table th, .planilla-table td { overflow-wrap: anywhere; }
-        .teacher-col { width: 96px; }
-        .day-col { width: 18px; min-width: 18px; max-width: 18px; text-align: center; }
-        .summary-col { width: 58px; }
-        .total-col { width: 20px; text-align: center; }
-        .obs-col { width: 168px; }
-        col.weekend-col, col.holiday-col { background-color: #d9d9d9 !important; }
-        col.institutional-col { background-color: #bdd7ee !important; }
-        .weekend, .holiday { background-color: #d9d9d9 !important; }
-        .institutional { background-color: #bdd7ee !important; }
-        .vertical { writing-mode: vertical-rl; transform: rotate(180deg); height: 76px; margin: 2px auto 0; overflow:hidden; font-size: 6.7px; font-weight: 900; text-align:center; color:#0f172a; }
-        .report-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 95px; margin-top: 78px; text-align: center; font-size: 11px; break-inside: avoid; }
-        .report-signatures div { border-top: 1px solid #111; padding-top: 8px; min-height: 52px; }
-        .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 9px; }
-        .page-break { page-break-before: always; }
-        .portrait .report-table { font-size: 10px; }
-
-        .resumen-docente-table { table-layout: fixed; width: 100%; }
-        .resumen-date-col { width: 26mm; }
-        .resumen-type-col { width: 42mm; }
-        .resumen-obs-col { width: auto; }
-        .portrait h3 { break-after: avoid; }
-        @media print { button { display: none; } }
-    `;
+  function addPageNumbers(doc) {
+    const count = doc.getNumberOfPages();
+    for (let i = 1; i <= count; i++) {
+      doc.setPage(i);
+      const w = doc.internal.pageSize.getWidth();
+      const h = doc.internal.pageSize.getHeight();
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(90, 90, 90);
+      doc.text(`Pagina ${i} de ${count}`, w - 10, h - 5, { align: 'right' });
+    }
   }
 
-  function openPrintWindow(html, title, mode = 'landscape') {
-    const win = window.open('', '_blank');
-    const pageClass = mode === 'portrait' ? 'portrait' : 'landscape';
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-      <style>${basePrintStyles()}</style></head><body class="${pageClass}">${html}<script>setTimeout(function(){window.print()},300)</script></body></html>`);
-    win.document.close();
-  }
-
-  function buildPlanilla({ settings, teachers, types, records, days, holidays, year, monthIndex }) {
-    const title = `ASISTENCIA DOCENTES MES ${monthTitle(year, monthIndex)}`;
+  function buildPlanillaModel({ teachers, records, days, holidays, year, monthIndex }) {
     const last = new Date(year, monthIndex + 1, 0).getDate();
     const activeTeachers = teachers.filter(t => t.active !== false).sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
     const byTeacherDate = new Map();
@@ -152,75 +171,246 @@
       return { day, date: d, iso, dayRec, ...dayClassesForPdf(d, dayRec, holidaySet) };
     });
 
-    const headDays = dayMeta.map(meta =>
-      `<th class="${meta.cell}"${bgStyle(meta)}><div>${meta.day}</div><div>${escapeHtml(WEEK[meta.date.getDay()])}</div>${meta.institutional ? `<div class="vertical">${escapeHtml(meta.label)}</div>` : ''}</th>`
-    ).join('');
-
-    const body = activeTeachers.map(t => {
+    const rows = activeTeachers.map(t => {
       const counts = {};
       const obs = [];
-      const dayRows = dayMeta.map(meta => {
+      const dayValues = {};
+      dayMeta.forEach((meta, i) => {
         const recs = byTeacherDate.get(`${t.id}|${meta.iso}`) || [];
         const codeText = recs.map(r => r.absence_code).join(' / ');
         recs.forEach(r => {
           counts[r.absence_code] = (counts[r.absence_code] || 0) + 1;
           if (r.observation_final) obs.push(`${r.observation_final}${r.replacement_name ? ' Reemplazo: ' + r.replacement_name : ''}.`);
         });
-        return { meta, codeText };
+        dayValues[`d${i + 1}`] = codeText;
       });
-      const summary = Object.entries(counts).map(([code, count]) => `${code}: ${count}`).join('<br>') || '0';
+      const summary = Object.entries(counts).map(([code, count]) => `${code}: ${count}`).join('\n') || '0';
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
-      const alertColor = absenceAlertColor(total);
-      const cells = dayRows.map(({ meta, codeText }) => {
-        const bg = codeText ? alertColor : meta.bg;
-        return `<td class="${meta.cell}" style="text-align:center;font-weight:800;${cellBgStyle(bg)}">${escapeHtml(codeText)}</td>`;
-      }).join('');
-      return `<tr><td class="teacher-col" style="font-weight:800;${cellBgStyle(alertColor)}">${escapeHtml(t.full_name)}</td>${cells}<td class="summary-col">${summary}</td><td class="total-col" style="text-align:center;font-weight:900;">${total}</td><td class="obs-col">${escapeHtml(obs.join(' '))}</td></tr>`;
-    }).join('');
+      return {
+        teacher: t.full_name,
+        summary,
+        total: String(total),
+        obs: obs.join(' '),
+        alert: absenceAlertColor(total),
+        ...dayValues
+      };
+    });
 
-    const legend = types.map(t => `<span><strong>${escapeHtml(t.code)}:</strong> ${escapeHtml(t.name)}</span>`).join('');
-    const colgroup = `<colgroup><col class="teacher-col">${dayMeta.map(meta => `<col class="${meta.col}">`).join('')}<col class="summary-col"><col class="total-col"><col class="obs-col"></colgroup>`;
-    return `<div class="report-page landscape">${reportHeader(settings, title)}<table class="report-table planilla-table">${colgroup}<thead><tr><th class="teacher-col">DOCENTE</th>${headDays}<th class="summary-col">RESUMEN</th><th class="total-col">T</th><th class="obs-col">OBSERVACIÓN</th></tr></thead><tbody>${body}</tbody></table><div class="legend">${legend}</div>${signatures(settings)}</div>`;
+    return { dayMeta, rows };
   }
 
-  function buildDetalle({ settings, teachers, types, records, year, monthIndex }) {
-    const title = `DETALLE ASISTENCIA DOCENTES MES ${monthTitle(year, monthIndex)}`;
-    const rows = records.filter(r => !r.deleted_at).sort((a, b) => (a.date || '').localeCompare(b.date || '') || teacherName(a.teacher_id, teachers).localeCompare(teacherName(b.teacher_id, teachers), 'es')).map(r => `
-      <tr>
-        <td>${fmtDate(r.date)}</td>
-        <td>${escapeHtml(teacherName(r.teacher_id, teachers))}</td>
-        <td>${escapeHtml(typeName(r.absence_code, types))}</td>
-        <td>${escapeHtml(r.observation_final || '')}${r.replacement_name ? `<br><strong>Reemplazo:</strong> ${escapeHtml(r.replacement_name)}` : ''}</td>
-      </tr>`).join('');
-    return `<div class="report-page portrait">${reportHeader(settings, title)}<table class="report-table" style="font-size:10px;"><thead><tr><th>FECHA</th><th>DOCENTE</th><th>INASISTENCIA</th><th>OBSERVACIÓN</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Sin registros en el mes.</td></tr>'}</tbody></table>${signatures(settings)}</div>`;
+  function addPlanilla(doc, data, logoDataUrl, isFirstPage = true) {
+    if (!isFirstPage) doc.addPage([330, 215], 'landscape');
+    const title = `ASISTENCIA DOCENTES MES ${monthTitle(data.year, data.monthIndex)}`;
+    const startY = drawHeader(doc, data.settings, title, logoDataUrl, 'landscape');
+    const model = buildPlanillaModel(data);
+    const dayCount = model.dayMeta.length;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const usable = pageWidth - 14;
+    const teacherW = 48;
+    const summaryW = 20;
+    const totalW = 9;
+    const obsW = 70;
+    const dayW = Math.max(4.8, (usable - teacherW - summaryW - totalW - obsW) / dayCount);
+
+    const head = [[
+      'DOCENTE',
+      ...model.dayMeta.map(meta => `${meta.day}\n${WEEK[meta.date.getDay()]}${meta.institutional ? '\n' + String(meta.label || '').slice(0, 8) : ''}`),
+      'RESUMEN',
+      'T',
+      'OBSERVACION'
+    ]];
+
+    const body = model.rows.map(r => [
+      r.teacher,
+      ...model.dayMeta.map((_, i) => r[`d${i + 1}`] || ''),
+      r.summary,
+      r.total,
+      r.obs
+    ]);
+
+    const columnStyles = { 0: { cellWidth: teacherW, halign: 'left', fontStyle: 'bold' } };
+    for (let i = 0; i < dayCount; i++) columnStyles[i + 1] = { cellWidth: dayW, halign: 'center', fontStyle: 'bold' };
+    columnStyles[dayCount + 1] = { cellWidth: summaryW, halign: 'left' };
+    columnStyles[dayCount + 2] = { cellWidth: totalW, halign: 'center', fontStyle: 'bold' };
+    columnStyles[dayCount + 3] = { cellWidth: obsW, halign: 'left' };
+
+    doc.autoTable({
+      startY,
+      head,
+      body,
+      theme: 'grid',
+      margin: { left: 7, right: 7, top: startY, bottom: 12 },
+      tableWidth: usable,
+      styles: {
+        font: 'helvetica',
+        fontSize: 5.7,
+        cellPadding: 0.65,
+        lineColor: [51, 51, 51],
+        lineWidth: 0.12,
+        textColor: [17, 17, 17],
+        valign: 'middle',
+        overflow: 'linebreak'
+      },
+      headStyles: {
+        fontStyle: 'bold',
+        fontSize: 5.9,
+        fillColor: [241, 241, 241],
+        textColor: [17, 17, 17],
+        halign: 'center',
+        minCellHeight: 7
+      },
+      columnStyles,
+      didParseCell: hook => {
+        const { cell, row, column, section } = hook;
+        const col = column.index;
+        if (section === 'head' && col > 0 && col <= dayCount) {
+          const meta = model.dayMeta[col - 1];
+          const rgb = hexToRgb(meta.bg);
+          if (rgb) cell.styles.fillColor = rgb;
+        }
+        if (section === 'body') {
+          const record = model.rows[row.index];
+          if (col === 0 && record.alert) cell.styles.fillColor = hexToRgb(record.alert);
+          if (col > 0 && col <= dayCount) {
+            const value = record[`d${col}`];
+            const meta = model.dayMeta[col - 1];
+            const color = value ? record.alert : meta.bg;
+            const rgb = hexToRgb(color);
+            if (rgb) cell.styles.fillColor = rgb;
+          }
+          if (col === dayCount + 2 && record.alert) {
+            cell.styles.fillColor = hexToRgb(record.alert);
+            cell.styles.fontStyle = 'bold';
+          }
+        }
+      }
+    });
+
+    const finalY = doc.lastAutoTable?.finalY || startY;
+    const legendY = Math.min(finalY + 5, doc.internal.pageSize.getHeight() - 25);
+    const legend = data.types.map(t => `${t.code}: ${t.name}`).join('   ');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.text(doc.splitTextToSize(legend, usable), 7, legendY);
+    addSignatures(doc, data.settings, legendY + 18);
   }
 
-  function buildResumenDocente({ settings, teachers, types, records, year, monthIndex }) {
-    const title = `RESUMEN POR DOCENTE MES ${monthTitle(year, monthIndex)}`;
+  function addDetalle(doc, data, logoDataUrl, isFirstPage = true) {
+    if (!isFirstPage) doc.addPage([215, 330], 'portrait');
+    const title = `DETALLE ASISTENCIA DOCENTES MES ${monthTitle(data.year, data.monthIndex)}`;
+    const startY = drawHeader(doc, data.settings, title, logoDataUrl, 'portrait');
+    const rows = data.records.filter(r => !r.deleted_at)
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || teacherName(a.teacher_id, data.teachers).localeCompare(teacherName(b.teacher_id, data.teachers), 'es'))
+      .map(r => [
+        fmtDate(r.date),
+        teacherName(r.teacher_id, data.teachers),
+        typeName(r.absence_code, data.types),
+        `${r.observation_final || ''}${r.replacement_name ? '\nReemplazo: ' + r.replacement_name : ''}`
+      ]);
+
+    doc.autoTable({
+      startY,
+      head: [['FECHA', 'DOCENTE', 'INASISTENCIA', 'OBSERVACION']],
+      body: rows.length ? rows : [['', '', '', 'Sin registros en el mes.']],
+      theme: 'grid',
+      margin: { left: 9, right: 9, top: startY, bottom: 14 },
+      styles: { font: 'helvetica', fontSize: 8.2, cellPadding: 1.5, lineColor: [51, 51, 51], lineWidth: 0.12, overflow: 'linebreak' },
+      headStyles: { fillColor: [241, 241, 241], textColor: [17, 17, 17], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 56 }, 2: { cellWidth: 45 }, 3: { cellWidth: 'auto' } }
+    });
+    addSignatures(doc, data.settings, (doc.lastAutoTable?.finalY || startY) + 28);
+  }
+
+  function addResumenDocente(doc, data, logoDataUrl, isFirstPage = true) {
+    if (!isFirstPage) doc.addPage([215, 330], 'portrait');
+    const title = `RESUMEN POR DOCENTE MES ${monthTitle(data.year, data.monthIndex)}`;
+    let y = drawHeader(doc, data.settings, title, logoDataUrl, 'portrait');
     const grouped = new Map();
-    records.filter(r => !r.deleted_at).forEach(r => {
-      const name = teacherName(r.teacher_id, teachers);
+    data.records.filter(r => !r.deleted_at).forEach(r => {
+      const name = teacherName(r.teacher_id, data.teachers);
       if (!grouped.has(name)) grouped.set(name, []);
       grouped.get(name).push(r);
     });
-    const sections = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es')).map(([name, recs]) => `
-      <h3 style="font-size:12px;margin:16px 0 5px;">${escapeHtml(name)} · Total: ${recs.length}</h3>
-      <table class="report-table resumen-docente-table" style="font-size:9px;"><colgroup><col class="resumen-date-col"><col class="resumen-type-col"><col class="resumen-obs-col"></colgroup><thead><tr><th>FECHA</th><th>TIPO</th><th>OBSERVACIÓN</th></tr></thead><tbody>
-        ${recs.sort((a, b) => a.date.localeCompare(b.date)).map(r => `<tr><td>${fmtDate(r.date)}</td><td>${escapeHtml(typeName(r.absence_code, types))}</td><td>${escapeHtml(r.observation_final || '')}${r.replacement_name ? ` Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</td></tr>`).join('')}
-      </tbody></table>`).join('');
-    return `<div class="report-page portrait">${reportHeader(settings, title)}${sections || '<p>Sin registros en el mes.</p>'}${signatures(settings)}</div>`;
+
+    if (!grouped.size) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text('Sin registros en el mes.', 9, y + 6);
+      addSignatures(doc, data.settings, y + 42);
+      return;
+    }
+
+    [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es')).forEach(([name, recs]) => {
+      if (y > 292) {
+        doc.addPage([215, 330], 'portrait');
+        y = drawHeader(doc, data.settings, title, logoDataUrl, 'portrait');
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.2);
+      doc.text(`${name} - Total: ${recs.length}`, 9, y + 3);
+      const rows = recs.sort((a, b) => a.date.localeCompare(b.date)).map(r => [
+        fmtDate(r.date),
+        typeName(r.absence_code, data.types),
+        `${r.observation_final || ''}${r.replacement_name ? ' Reemplazo: ' + r.replacement_name : ''}`
+      ]);
+      doc.autoTable({
+        startY: y + 6,
+        head: [['FECHA', 'TIPO', 'OBSERVACION']],
+        body: rows,
+        theme: 'grid',
+        margin: { left: 9, right: 9, top: 48, bottom: 14 },
+        styles: { font: 'helvetica', fontSize: 7.4, cellPadding: 1.15, lineColor: [51, 51, 51], lineWidth: 0.12, overflow: 'linebreak' },
+        headStyles: { fillColor: [241, 241, 241], textColor: [17, 17, 17], fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 44 }, 2: { cellWidth: 'auto' } }
+      });
+      y = (doc.lastAutoTable?.finalY || y) + 8;
+    });
+    addSignatures(doc, data.settings, y + 20);
   }
 
+  async function saveDoc(doc, fileName) {
+    addPageNumbers(doc);
+    doc.save(fileName);
+  }
+
+  async function generate(kind, data) {
+    try {
+      const logo = await loadLogoDataUrl();
+      const doc = createDoc(kind === 'planilla' ? 'landscape' : 'portrait');
+      if (!hasAutoTable(doc)) throw new Error('jsPDF AutoTable no esta cargado.');
+      if (kind === 'planilla') {
+        addPlanilla(doc, data, logo, true);
+        return saveDoc(doc, reportFileName('planilla_mensual', data.year, data.monthIndex));
+      }
+      if (kind === 'detalle') {
+        addDetalle(doc, data, logo, true);
+        return saveDoc(doc, reportFileName('detalle_mensual', data.year, data.monthIndex));
+      }
+      if (kind === 'resumen') {
+        addResumenDocente(doc, data, logo, true);
+        return saveDoc(doc, reportFileName('resumen_docente', data.year, data.monthIndex));
+      }
+      if (kind === 'todo') {
+        addPlanilla(doc, data, logo, true);
+        addDetalle(doc, data, logo, false);
+        addResumenDocente(doc, data, logo, false);
+        return saveDoc(doc, reportFileName('reportes_completos', data.year, data.monthIndex));
+      }
+    } catch (err) {
+      console.error('Error generando PDF:', err);
+      alert(`No se pudo generar el PDF: ${err.message || err}`);
+    }
+  }
+
+  // Compatibilidad: se conservan nombres antiguos usados por app.js.
   window.ReportPDF = {
-    printPlanilla(data) { openPrintWindow(buildPlanilla(data), 'Planilla mensual', 'landscape'); },
-    printDetalle(data) { openPrintWindow(buildDetalle(data), 'Detalle mensual', 'portrait'); },
-    printResumenDocente(data) { openPrintWindow(buildResumenDocente(data), 'Resumen por docente', 'portrait'); },
-    printTodo(data) {
-      const html = buildPlanilla(data) + buildDetalle(data) + buildResumenDocente(data);
-      openPrintWindow(html, 'Asistencia GGM - Reportes del mes', 'mixed');
-    },
-    buildPlanilla,
-    buildDetalle,
-    buildResumenDocente
+    printPlanilla(data) { return generate('planilla', data); },
+    printDetalle(data) { return generate('detalle', data); },
+    printResumenDocente(data) { return generate('resumen', data); },
+    printTodo(data) { return generate('todo', data); },
+    buildPlanilla(data) { return buildPlanillaModel(data); },
+    buildDetalle(data) { return data; },
+    buildResumenDocente(data) { return data; }
   };
 })();
