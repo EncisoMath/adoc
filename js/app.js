@@ -10,6 +10,7 @@
     days: [],
     holidays: [],
     recipients: [],
+    attachments: [],
     currentTab: 'tabHoy',
     viewDate: new Date(),
     pdfDate: new Date(),
@@ -24,6 +25,8 @@
   const APP_ICON_URL = new URL('icons/icon-192.png', window.location.href).href;
   const NOTIFICATION_BADGE_URL = new URL('icons/notification-badge-96.png', window.location.href).href;
   const LOCAL_CORRECTION_QUEUE_KEY = 'pending_ai_corrections';
+  const MAX_SUPPORT_FILE_SIZE = 10 * 1024 * 1024;
+  const SUPPORT_FILE_ACCEPT = 'image/*,.pdf,.doc,.docx,.xls,.xlsx';
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
@@ -495,6 +498,53 @@
     return state.types.find(t => t.code === code);
   }
 
+  function attachmentsForRecord(recordId) {
+    return (state.attachments || []).filter(a => a.attendance_record_id === recordId);
+  }
+
+  function formatFileSize(bytes) {
+    const size = Number(bytes || 0);
+    if (!size) return '';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function supportFileSummary(files) {
+    const list = [...(files || [])];
+    if (!list.length) return 'Ningún soporte adjunto.';
+    return list.map(f => `${f.name}${f.size ? ` (${formatFileSize(f.size)})` : ''}`).join(' · ');
+  }
+
+  async function uploadRecordSupports(recordPayload, files) {
+    const selected = [...(files || [])];
+    if (!selected.length) return { uploaded: 0, failed: 0 };
+    if (!navigator.onLine) throw new Error('Los soportes solo se pueden subir con conexión.');
+
+    let uploaded = 0;
+    let failed = 0;
+    for (const file of selected) {
+      if (file.size > MAX_SUPPORT_FILE_SIZE) {
+        failed += 1;
+        console.warn('Soporte omitido por tamaño:', file.name);
+        continue;
+      }
+      try {
+        await Api.uploadAttachment({
+          recordId: recordPayload.id,
+          date: recordPayload.date,
+          file,
+          caption: `Soporte de ${recordPayload.date}`
+        });
+        uploaded += 1;
+      } catch (err) {
+        failed += 1;
+        console.warn('No se pudo subir soporte:', file.name, err);
+      }
+    }
+    return { uploaded, failed };
+  }
+
   function computeStats(date = state.viewDate) {
     const records = monthRecords(date);
     const days = monthDays(date);
@@ -754,6 +804,7 @@
     $('#addRecordBtn').addEventListener('click', () => openAttendanceForm(dateStr));
     $('#dayNoNewsBtn').addEventListener('click', () => markNoNews(dateStr));
     $('#institutionalBtn').addEventListener('click', () => openInstitutionalForm(dateStr));
+    $$('[data-view-supports]', content).forEach(b => b.addEventListener('click', () => openSupportsModal(b.dataset.viewSupports)));
     $$('[data-edit-record]', content).forEach(b => b.addEventListener('click', () => openAttendanceForm(dateStr, b.dataset.editRecord)));
     $$('[data-delete-record]', content).forEach(b => b.addEventListener('click', () => deleteRecord(b.dataset.deleteRecord)));
   }
@@ -761,11 +812,42 @@
   function recordListItem(r) {
     const t = teacherById(r.teacher_id);
     const type = typeByCode(r.absence_code);
+    const supportCount = attachmentsForRecord(r.id).length;
+    const supportBadge = r.has_attachments || supportCount ? `<span class="badge blue">📎 ${supportCount || 'Soporte'}</span>` : '';
+    const supportButton = r.has_attachments || supportCount ? `<button type="button" class="ghost-btn" data-view-supports="${r.id}">Ver soportes</button>` : '';
     return `<div class="list-item">
-      <div class="item-title"><span>${escapeHtml(t?.full_name || 'Docente')}</span><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span></div>
+      <div class="item-title"><span>${escapeHtml(t?.full_name || 'Docente')}</span><span>${supportBadge}<span class="badge fuchsia">${escapeHtml(r.absence_code)}</span></span></div>
       <div class="item-meta">${escapeHtml(type?.name || r.absence_code)}${r.replacement_name ? ` · Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}<br>${escapeHtml(r.observation_final || '')}</div>
-      <div class="item-actions"><button type="button" class="secondary-btn" data-edit-record="${r.id}">Editar</button><button type="button" class="danger-btn" data-delete-record="${r.id}">Eliminar</button></div>
+      <div class="item-actions">${supportButton}<button type="button" class="secondary-btn" data-edit-record="${r.id}">Editar</button><button type="button" class="danger-btn" data-delete-record="${r.id}">Eliminar</button></div>
     </div>`;
+  }
+
+  function openSupportsModal(recordId) {
+    const record = state.records.find(r => r.id === recordId);
+    const teacher = record ? teacherById(record.teacher_id) : null;
+    const supports = attachmentsForRecord(recordId);
+    $('#modalContent').innerHTML = `
+      <h2>Soportes adjuntos</h2>
+      <p class="muted">${escapeHtml(teacher?.full_name || 'Docente')} · ${record?.date ? escapeHtml(fmtShort(record.date)) : ''}</p>
+      ${supports.length ? `<div class="list">${supports.map(a => `
+        <div class="list-item">
+          <div class="item-title"><span>${escapeHtml(a.file_name || 'Soporte')}</span><span class="badge blue">${escapeHtml(formatFileSize(a.file_size) || 'Archivo')}</span></div>
+          <div class="item-meta">${escapeHtml(a.mime_type || 'Archivo adjunto')}${a.caption ? `<br>${escapeHtml(a.caption)}` : ''}</div>
+          <div class="item-actions"><button type="button" class="secondary-btn" data-open-support="${escapeHtml(a.storage_path)}">Abrir</button></div>
+        </div>`).join('')}</div>` : '<p class="muted">Este registro está marcado con soporte, pero no se encontraron archivos asociados en la caché local. Sincroniza y vuelve a intentar.</p>'}
+    `;
+    showModal();
+    $$('[data-open-support]', $('#modalContent')).forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          const url = await Api.getAttachmentUrl(btn.dataset.openSupport);
+          window.open(url, '_blank', 'noopener');
+        } catch (err) {
+          console.error(err);
+          toast('No se pudo abrir el soporte. Revisa conexión/permisos del bucket.');
+        }
+      });
+    });
   }
 
   function correctionStatus(text, active = false) {
@@ -862,8 +944,13 @@
         <label class="field"><span>Tipo</span><select id="recType">${typeOptions}</select></label>
         <label class="field" id="replacementField" style="display:none;"><span>Reemplazo</span><input id="recReplacement" value="${escapeHtml(record?.replacement_name || '')}" placeholder="Nombre de quien reemplazó"></label>
         <label class="field"><span>Observación</span><textarea id="recObservation" placeholder="Ej: no vino xq avisó por wasap que tenía cita médica.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
+        <input id="supportInput" type="file" accept="${SUPPORT_FILE_ACCEPT}" multiple hidden>
+        <div class="actions-row" style="margin:0;">
+          <button type="button" class="secondary-btn" id="attachSupportBtn">Adjuntar soportes</button>
+        </div>
+        <p class="tiny muted" id="supportSummary">${record?.has_attachments ? 'Este registro ya tiene soporte(s) guardado(s). Puedes adjuntar más si hace falta.' : 'Ningún soporte adjunto.'}</p>
         <div id="correctionStatus" class="voice-status hidden" aria-live="polite"></div>
-        <p class="tiny muted">El botón corrige localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar. No requiere conexión ni servicios externos.</p>
+        <p class="tiny muted">El botón corrige localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar. No requiere conexión. Los soportes sí requieren conexión para subirse.</p>
         <button type="button" class="primary-btn" id="saveRecordBtn">Corregir y enviar</button>
       </div>
     `;
@@ -872,6 +959,21 @@
     const toggleReplacement = () => replacementField.style.display = recType.value === 'RM' ? 'grid' : 'none';
     recType.addEventListener('change', toggleReplacement);
     toggleReplacement();
+
+    let selectedSupportFiles = [];
+    $('#attachSupportBtn')?.addEventListener('click', () => $('#supportInput')?.click());
+    $('#supportInput')?.addEventListener('change', event => {
+      const files = [...(event.target.files || [])];
+      const valid = [];
+      const tooLarge = [];
+      files.forEach(file => {
+        if (file.size > MAX_SUPPORT_FILE_SIZE) tooLarge.push(file.name);
+        else valid.push(file);
+      });
+      selectedSupportFiles = valid;
+      $('#supportSummary').textContent = supportFileSummary(valid);
+      if (tooLarge.length) toast(`Soporte(s) omitido(s) por superar 10 MB: ${tooLarge.join(', ')}`, 6000);
+    });
 
     $('#saveRecordBtn').addEventListener('click', async () => {
       const btn = $('#saveRecordBtn');
@@ -907,11 +1009,27 @@
       const saveResult = await Api.saveAttendance(payload);
       await Api.saveDayRecord({ date: payload.date, status: 'con_novedades', is_school_day: true });
       if (saveResult?.queued) await queueLocalCorrection({ id: recordIdValue, raw: rawObservation, payload });
+
+      let supportResult = { uploaded: 0, failed: 0 };
+      if (selectedSupportFiles.length) {
+        if (saveResult?.queued || !navigator.onLine) {
+          supportResult.failed = selectedSupportFiles.length;
+          toast('La novedad se guardó, pero los soportes necesitan conexión para subirse.', 6000);
+        } else {
+          correctionStatus('Subiendo soporte(s)...', true);
+          supportResult = await uploadRecordSupports(payload, selectedSupportFiles);
+          if (supportResult.uploaded) {
+            await Api.saveAttendance({ ...payload, has_attachments: true });
+          }
+        }
+      }
+
       btn.disabled = false;
       closeModal();
       await refreshData();
 
       if (saveResult?.queued) toast('Novedad corregida localmente y guardada en cola para sincronizar.');
+      else if (selectedSupportFiles.length) toast(`Novedad guardada. Soportes subidos: ${supportResult.uploaded}. Fallidos: ${supportResult.failed}.`, 6000);
       else toast('Novedad corregida y guardada.');
     });
   }
@@ -1310,7 +1428,8 @@
       attendance_records: state.records,
       day_records: state.days,
       holidays: state.holidays,
-      email_recipients: state.recipients
+      email_recipients: state.recipients,
+      attachments: state.attachments
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');

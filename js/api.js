@@ -143,7 +143,8 @@
       const days = await this.getDayRecords();
       const holidays = await this.getHolidays();
       const recipients = await this.getRecipients();
-      return { settings, teachers, types, records, days, holidays, recipients };
+      const attachments = await this.getAttachments();
+      return { settings, teachers, types, records, days, holidays, recipients, attachments };
     },
 
     async getSettings() {
@@ -229,6 +230,62 @@
 
     async getRecipients() {
       return safeSelect('email_recipients', q => q.select('*').order('email'));
+    },
+
+    async getAttachments() {
+      return safeSelect('attachments', q => q.select('*').order('created_at', { ascending: false }).limit(3000));
+    },
+
+    async uploadAttachment({ recordId, date, file, caption }) {
+      if (!recordId) throw new Error('Falta el ID de la novedad.');
+      if (!file) throw new Error('No se recibió el archivo de soporte.');
+      if (!navigator.onLine) throw new Error('Los soportes solo se pueden subir con conexión.');
+
+      const bucket = config.bucket || 'asistencia-ggm';
+      const safeName = String(file.name || 'soporte')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 96) || 'soporte';
+      const year = String(date || '').slice(0, 4) || new Date().getFullYear();
+      const month = String(date || '').slice(5, 7) || String(new Date().getMonth() + 1).padStart(2, '0');
+      const path = `soportes/${year}/${month}/${recordId}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+
+      const { data: storageData, error: storageError } = await client.storage
+        .from(bucket)
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type || 'application/octet-stream'
+        });
+      if (storageError) throw storageError;
+
+      const attachment = {
+        id: crypto.randomUUID(),
+        attendance_record_id: recordId,
+        storage_path: storageData?.path || path,
+        file_name: file.name || safeName,
+        mime_type: file.type || null,
+        file_size: Number.isFinite(file.size) ? file.size : null,
+        caption: caption || null
+      };
+
+      const { data, error } = await client.from('attachments').insert(attachment).select().single();
+      if (error) throw error;
+      await saveLocal('attachments', data || attachment);
+      return data || attachment;
+    },
+
+    async getAttachmentUrl(storagePath) {
+      if (!storagePath) throw new Error('No se encontró la ruta del soporte.');
+      const bucket = config.bucket || 'asistencia-ggm';
+      const { data, error } = await client.storage.from(bucket).createSignedUrl(storagePath, 60 * 10);
+      if (!error && data?.signedUrl) return data.signedUrl;
+      const pub = client.storage.from(bucket).getPublicUrl(storagePath);
+      if (pub?.data?.publicUrl) return pub.data.publicUrl;
+      if (error) throw error;
+      throw new Error('No se pudo abrir el soporte.');
     },
 
     async saveRecipient(recipient) {
