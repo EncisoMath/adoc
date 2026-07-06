@@ -194,14 +194,14 @@
       showLoginMsg('Usuario creado. Si Supabase pide confirmación por correo, confirma y luego entra.', false);
     });
 
-    $('#logoutBtn').addEventListener('click', async () => {
+    $('#logoutBtn')?.addEventListener('click', async () => {
       if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
       await Api.logout();
       state.session = null;
       showLogin();
     });
 
-    $('#syncBtn').addEventListener('click', syncNow);
+    $('#syncBtn')?.addEventListener('click', syncNow);
   }
 
   function showLoginMsg(text, isError = true) {
@@ -297,10 +297,10 @@
   }
 
   async function syncNow() {
-    const btn = $('#syncBtn');
-    btn.disabled = true;
+    const btn = $('#syncBtn') || $('#settingsSyncBtn');
+    if (btn) btn.disabled = true;
     const result = await Api.syncQueue();
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
     if (!result.ok && result.message) return toast(result.message);
     if (result.failed) return toast(`Sincronización parcial: ${result.synced} ok, ${result.failed} pendientes.`);
     await refreshData();
@@ -523,6 +523,11 @@
         <div class="stat-card"><small>Institucionales</small><strong>${stats.institutionalDays}</strong></div>
         <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
       </div>
+      <div class="panel calendar-month-list-panel" style="margin-top:12px;">
+        <h3>Detalle del mes</h3>
+        <p class="tiny muted">Registros organizados desde la fecha más reciente hasta la más antigua.</p>
+        ${renderCalendarMonthDetailList(year, month)}
+      </div>
     `;
     $$('.day-cell:not(.out)', $('#tabCalendario')).forEach(cell => cell.addEventListener('click', () => openDayModal(cell.dataset.date)));
   }
@@ -564,6 +569,41 @@
     return html;
   }
 
+  function renderCalendarMonthDetailList(year, month) {
+    const records = state.records
+      .filter(r => !r.deleted_at && isSameMonth(r.date, year, month))
+      .sort((a, b) => b.date.localeCompare(a.date) || (teacherById(a.teacher_id)?.full_name || '').localeCompare(teacherById(b.teacher_id)?.full_name || '', 'es'));
+    const dayEvents = state.days
+      .filter(d => isSameMonth(d.date, year, month) && (d.status === 'institucional' || d.status === 'no_laboral'))
+      .map(d => ({ ...d, __kind: 'day' }));
+
+    const grouped = new Map();
+    [...records, ...dayEvents].forEach(item => {
+      const key = item.date;
+      if (!grouped.has(key)) grouped.set(key, { records: [], events: [] });
+      if (item.__kind === 'day') grouped.get(key).events.push(item);
+      else grouped.get(key).records.push(item);
+    });
+
+    const dates = [...grouped.keys()].sort((a, b) => b.localeCompare(a));
+    if (!dates.length) return '<p class="muted">Este mes todavía no tiene registros ni eventos institucionales.</p>';
+
+    return `<div class="calendar-detail-list">${dates.map(date => {
+      const group = grouped.get(date);
+      return `<section class="calendar-date-group">
+        <h4>${escapeHtml(fmtLong(date))}</h4>
+        ${group.events.map(ev => `<div class="calendar-detail-item institutional-line"><span class="badge blue">${escapeHtml(ev.institutional_type || 'Evento')}</span><strong>${escapeHtml(ev.institutional_title || ev.institutional_type || 'Evento institucional')}</strong>${ev.observation ? `<p>${escapeHtml(ev.observation)}</p>` : ''}</div>`).join('')}
+        ${group.records.map(r => {
+          const teacher = teacherById(r.teacher_id)?.full_name || 'Docente';
+          return `<div class="calendar-detail-item">
+            <div class="calendar-detail-title"><span class="badge fuchsia">${escapeHtml(r.absence_code)}</span><strong>${escapeHtml(teacher)}</strong></div>
+            <p>${escapeHtml(r.observation_final || 'Sin observación.')}${r.replacement_name ? `<br><strong>Reemplazo:</strong> ${escapeHtml(r.replacement_name)}` : ''}</p>
+          </div>`;
+        }).join('')}
+      </section>`;
+    }).join('')}</div>`;
+  }
+
   function renderPendingList() {
     const list = pendingSchoolDays();
     if (!list.length) return '<p class="muted">No hay días pendientes hasta hoy.</p>';
@@ -588,7 +628,7 @@
         <button type="button" class="secondary-btn" id="dayNoNewsBtn">Marcar sin novedades</button>
         <button type="button" class="ghost-btn" id="institutionalBtn">Evento institucional</button>
       </div>
-      ${day ? `<div class="panel"><strong>Estado:</strong> ${escapeHtml(day.status)}${day.institutional_type ? ` · ${escapeHtml(day.institutional_type)}` : ''}<br><span class="muted">${escapeHtml(day.observation || '')}</span></div>` : ''}
+      ${day && (day.status === 'institucional' || day.status === 'no_laboral' || day.observation) ? `<div class="panel">${day.institutional_type ? `<strong>${escapeHtml(day.institutional_type)}</strong><br>` : ''}<span class="muted">${escapeHtml(day.observation || day.institutional_title || '')}</span></div>` : ''}
       <h3>Registros del día</h3>
       ${records.length ? `<div class="list">${records.map(r => recordListItem(r)).join('')}</div>` : '<p class="muted">Sin registros de docentes en este día.</p>'}
     `;
@@ -1040,16 +1080,19 @@
           <div class="stat-card"><small>Pendientes</small><strong>${stats.pendingDays}</strong></div>
           <div class="stat-card"><small>Institucionales</small><strong>${stats.institutionalDays}</strong></div>
         </div>
-        <div class="actions-row">
-          <button class="primary-btn" id="printPlanilla">Planilla mensual</button>
-          <button class="secondary-btn" id="printDetalle">Detalle mensual</button>
-          <button class="ghost-btn" id="printResumen">Resumen por docente</button>
+        <div class="pdf-actions-list">
+          <button class="report-btn primary-btn" id="printPlanilla"><strong>Planilla mensual</strong><span>Calendario oficial del mes: docentes por filas, días por columnas, códigos, totales, observaciones, leyenda y firmas.</span></button>
+          <button class="report-btn secondary-btn" id="printDetalle"><strong>Detalle mensual</strong><span>Listado vertical fila a fila con fecha, docente, tipo de inasistencia, observación y reemplazo si aplica.</span></button>
+          <button class="report-btn ghost-btn" id="printResumen"><strong>Resumen por docente</strong><span>Informe vertical organizado por docente, con sus novedades del mes agrupadas para revisión individual.</span></button>
         </div>
-        <p class="tiny muted">Los reportes usan Calibri y configuración predeterminada para papel oficio horizontal 21.5 × 33 cm.</p>
+        <div class="report-separator"></div>
+        <button class="report-btn primary-btn full" id="printTodo"><strong>Generar todo en uno</strong><span>Une planilla mensual, detalle mensual y resumen por docente en un solo documento listo para imprimir o guardar como PDF.</span></button>
+        <p class="tiny muted">Los reportes usan Calibri. Planilla en oficio horizontal; detalle y resumen en oficio vertical.</p>
       </div>`;
     $('#printPlanilla').addEventListener('click', () => printReport('planilla'));
     $('#printDetalle').addEventListener('click', () => printReport('detalle'));
     $('#printResumen').addEventListener('click', () => printReport('resumen'));
+    $('#printTodo').addEventListener('click', () => printReport('todo'));
   }
 
   function reportData() {
@@ -1063,6 +1106,7 @@
     if (kind === 'planilla') ReportPDF.printPlanilla(data);
     if (kind === 'detalle') ReportPDF.printDetalle(data);
     if (kind === 'resumen') ReportPDF.printResumenDocente(data);
+    if (kind === 'todo') ReportPDF.printTodo(data);
   }
 
   function renderAjustes() {
@@ -1097,12 +1141,21 @@
         <h2>Datos y conexión</h2>
         <div class="actions-row">
           <button class="primary-btn" id="saveSettingsBtn">Guardar ajustes</button>
+          <button class="secondary-btn" id="settingsSyncBtn">Actualizar / sincronizar</button>
           <button class="secondary-btn" id="askNotificationsBtn">Activar notificaciones</button>
           <button class="ghost-btn" id="exportBackupBtn">Exportar respaldo JSON</button>
+          <button class="danger-btn" id="settingsLogoutBtn">Cerrar sesión en este dispositivo</button>
         </div>
         <p class="tiny muted">Notificaciones push reales + correos automáticos + agente OpenAI van en la siguiente fase con Edge Functions.</p>
       </div>`;
     $('#saveSettingsBtn').addEventListener('click', saveSettings);
+    $('#settingsSyncBtn').addEventListener('click', syncNow);
+    $('#settingsLogoutBtn').addEventListener('click', async () => {
+      if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
+      await Api.logout();
+      state.session = null;
+      showLogin();
+    });
     $('#askNotificationsBtn').addEventListener('click', askNotifications);
     $('#exportBackupBtn').addEventListener('click', exportBackup);
   }

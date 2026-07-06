@@ -607,3 +607,73 @@ h1, h2, h3, p { margin-top: 0; }
   .docentes-title-row { grid-template-columns: 1fr; }
   .teacher-page-head { display: grid; grid-template-columns: 1fr 1fr; }
 }
+
+/* v0.6 ajustes calendario/PDF */
+.nav-item b { font-weight: 500; }
+
+.calendar-month-list-panel h3 { margin-bottom: 4px; }
+.calendar-detail-list { display: grid; gap: 12px; }
+.calendar-date-group {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.calendar-date-group:first-child { border-top: 0; padding-top: 0; }
+.calendar-date-group h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  text-transform: capitalize;
+}
+.calendar-detail-item {
+  display: grid;
+  gap: 5px;
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.calendar-detail-item:last-child { border-bottom: 0; }
+.calendar-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.calendar-detail-title strong,
+.calendar-detail-item.institutional-line strong { font-size: 13px; }
+.calendar-detail-item p { margin: 0 0 0 2px; color: var(--muted); font-size: 13px; line-height: 1.35; }
+.calendar-detail-item.institutional-line {
+  background: color-mix(in srgb, var(--info) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--info) 20%, var(--line));
+  border-radius: var(--radius);
+  padding: 9px;
+}
+
+.pdf-actions-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  margin-top: 12px;
+}
+.report-btn {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  justify-items: start;
+  align-content: center;
+  white-space: normal;
+  line-height: 1.25;
+}
+.report-btn strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 900;
+}
+.report-btn span {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: .86;
+}
+.report-separator {
+  height: 1px;
+  background: var(--line);
+  margin: 14px 0;
+}

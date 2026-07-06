@@ -23,6 +23,17 @@
     return `${MONTHS[monthIndex]} ${year}`;
   }
 
+  function dayClassesForPdf(date, dayRec, holidaySet) {
+    const iso = date.toISOString().slice(0, 10);
+    const isWeekendDay = date.getDay() === 0 || date.getDay() === 6;
+    const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || dayRec?.institutional_type === 'Festivo';
+    const isInst = dayRec?.status === 'institucional';
+    if (isInst) return { cell: 'institutional day-col', col: 'institutional-col', label: dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional', institutional: true };
+    if (isHoliday) return { cell: 'holiday day-col', col: 'holiday-col', label: WEEK[date.getDay()], institutional: false };
+    if (isWeekendDay) return { cell: 'weekend day-col', col: 'weekend-col', label: WEEK[date.getDay()], institutional: false };
+    return { cell: 'day-col', col: 'day-col', label: WEEK[date.getDay()], institutional: false };
+  }
+
   function reportHeader(settings, title) {
     const s = settings || {};
     return `
@@ -51,16 +62,20 @@
     `;
   }
 
-  function openPrintWindow(html, title) {
-    const win = window.open('', '_blank');
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-      <style>
+  function basePrintStyles() {
+    return `
+        @page landscape-page { size: 330mm 215mm; margin: 7mm; }
+        @page portrait-page { size: 215mm 330mm; margin: 11mm 9mm; }
         @page { size: 330mm 215mm; margin: 7mm; }
-        body { font-family: Calibri, Arial, sans-serif; margin: 0; color: #111; }
-        .report-page { background: #fff; padding: 0; }
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        body { font-family: Calibri, Arial, sans-serif; margin: 0; color: #111; background: #fff; }
+        .report-page { background: #fff; padding: 0; page-break-after: always; }
+        .report-page:last-child { page-break-after: auto; }
+        .report-page.landscape { page: landscape-page; }
+        .report-page.portrait { page: portrait-page; }
         .report-table { width: 100%; border-collapse: collapse; font-size: 8.4px; }
         .report-table th, .report-table td { border: 1px solid #333; padding: 2px 3px; vertical-align: middle; }
-        .report-table th { background: #f1f1f1; font-weight: 900; }
+        .report-table th { background-color: #f1f1f1 !important; font-weight: 900; }
         .planilla-table { table-layout: fixed; }
         .planilla-table th, .planilla-table td { overflow-wrap: anywhere; }
         .teacher-col { width: 96px; }
@@ -68,16 +83,26 @@
         .summary-col { width: 58px; }
         .total-col { width: 20px; text-align: center; }
         .obs-col { width: 168px; }
-        .weekend { background: #d9d9d9 !important; }
-        .holiday { background: #d9d9d9 !important; }
-        .institutional { background: #bdd7ee !important; }
+        col.weekend-col, col.holiday-col { background-color: #d9d9d9 !important; }
+        col.institutional-col { background-color: #bdd7ee !important; }
+        .weekend, .holiday { background-color: #d9d9d9 !important; }
+        .institutional { background-color: #bdd7ee !important; }
         .vertical { writing-mode: vertical-rl; transform: rotate(180deg); height: 76px; margin: 2px auto 0; overflow:hidden; font-size: 6.7px; font-weight: 900; text-align:center; color:#0f172a; }
-        .report-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 85px; margin-top: 62px; text-align: center; font-size: 11px; break-inside: avoid; }
-        .report-signatures div { border-top: 1px solid #111; padding-top: 8px; min-height: 46px; }
+        .report-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 95px; margin-top: 78px; text-align: center; font-size: 11px; break-inside: avoid; }
+        .report-signatures div { border-top: 1px solid #111; padding-top: 8px; min-height: 52px; }
         .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 9px; }
         .page-break { page-break-before: always; }
+        .portrait .report-table { font-size: 10px; }
+        .portrait h3 { break-after: avoid; }
         @media print { button { display: none; } }
-      </style></head><body>${html}<script>setTimeout(function(){window.print()},300)</script></body></html>`);
+    `;
+  }
+
+  function openPrintWindow(html, title, mode = 'landscape') {
+    const win = window.open('', '_blank');
+    const pageClass = mode === 'portrait' ? 'portrait' : 'landscape';
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+      <style>${basePrintStyles()}</style></head><body class="${pageClass}">${html}<script>setTimeout(function(){window.print()},300)</script></body></html>`);
     win.document.close();
   }
 
@@ -90,38 +115,29 @@
     const dayMap = new Map(days.map(d => [d.date, d]));
     const holidaySet = new Set(holidays.map(h => h.date));
 
-    const headDays = Array.from({ length: last }, (_, i) => {
+    const dayMeta = Array.from({ length: last }, (_, i) => {
       const day = i + 1;
       const d = new Date(year, monthIndex, day);
       const iso = d.toISOString().slice(0, 10);
       const dayRec = dayMap.get(iso);
-      const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral';
-      const isWeekendDay = d.getDay() === 0 || d.getDay() === 6;
-      const isInst = dayRec?.status === 'institucional';
-      const cls = isInst ? 'institutional day-col' : isHoliday ? 'holiday day-col' : isWeekendDay ? 'weekend day-col' : 'day-col';
-      const label = isInst ? (dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional') : WEEK[d.getDay()];
-      return `<th class="${cls}"><div>${day}</div><div>${escapeHtml(WEEK[d.getDay()])}</div>${isInst ? `<div class="vertical">${escapeHtml(label)}</div>` : ''}</th>`;
-    }).join('');
+      return { day, date: d, iso, dayRec, ...dayClassesForPdf(d, dayRec, holidaySet) };
+    });
+
+    const headDays = dayMeta.map(meta =>
+      `<th class="${meta.cell}"><div>${meta.day}</div><div>${escapeHtml(WEEK[meta.date.getDay()])}</div>${meta.institutional ? `<div class="vertical">${escapeHtml(meta.label)}</div>` : ''}</th>`
+    ).join('');
 
     const body = activeTeachers.map(t => {
       const counts = {};
       const obs = [];
-      const cells = Array.from({ length: last }, (_, i) => {
-        const day = i + 1;
-        const d = new Date(year, monthIndex, day);
-        const iso = d.toISOString().slice(0, 10);
-        const dayRec = dayMap.get(iso);
-        const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral';
-        const isWeekendDay = d.getDay() === 0 || d.getDay() === 6;
-        const isInst = dayRec?.status === 'institucional';
-        const recs = byTeacherDate.get(`${t.id}|${iso}`) || [];
+      const cells = dayMeta.map(meta => {
+        const recs = byTeacherDate.get(`${t.id}|${meta.iso}`) || [];
         const codeText = recs.map(r => r.absence_code).join(' / ');
         recs.forEach(r => {
           counts[r.absence_code] = (counts[r.absence_code] || 0) + 1;
           if (r.observation_final) obs.push(`${r.observation_final}${r.replacement_name ? ' Reemplazo: ' + r.replacement_name : ''}.`);
         });
-        const cellClass = isInst ? 'institutional day-col' : isHoliday ? 'holiday day-col' : isWeekendDay ? 'weekend day-col' : 'day-col';
-        return `<td class="${cellClass}" style="text-align:center;font-weight:800;">${escapeHtml(codeText)}</td>`;
+        return `<td class="${meta.cell}" style="text-align:center;font-weight:800;">${escapeHtml(codeText)}</td>`;
       }).join('');
       const summary = Object.entries(counts).map(([code, count]) => `${code}: ${count}`).join('<br>') || '0';
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -129,8 +145,8 @@
     }).join('');
 
     const legend = types.map(t => `<span><strong>${escapeHtml(t.code)}:</strong> ${escapeHtml(t.name)}</span>`).join('');
-    const colgroup = `<colgroup><col class="teacher-col">${Array.from({ length: last }, () => '<col class="day-col">').join('')}<col class="summary-col"><col class="total-col"><col class="obs-col"></colgroup>`;
-    return `<div class="report-page">${reportHeader(settings, title)}<table class="report-table planilla-table">${colgroup}<thead><tr><th class="teacher-col">DOCENTE</th>${headDays}<th class="summary-col">RESUMEN</th><th class="total-col">T</th><th class="obs-col">OBSERVACIÓN</th></tr></thead><tbody>${body}</tbody></table><div class="legend">${legend}</div>${signatures(settings)}</div>`;
+    const colgroup = `<colgroup><col class="teacher-col">${dayMeta.map(meta => `<col class="${meta.col}">`).join('')}<col class="summary-col"><col class="total-col"><col class="obs-col"></colgroup>`;
+    return `<div class="report-page landscape">${reportHeader(settings, title)}<table class="report-table planilla-table">${colgroup}<thead><tr><th class="teacher-col">DOCENTE</th>${headDays}<th class="summary-col">RESUMEN</th><th class="total-col">T</th><th class="obs-col">OBSERVACIÓN</th></tr></thead><tbody>${body}</tbody></table><div class="legend">${legend}</div>${signatures(settings)}</div>`;
   }
 
   function buildDetalle({ settings, teachers, types, records, year, monthIndex }) {
@@ -142,7 +158,7 @@
         <td>${escapeHtml(typeName(r.absence_code, types))}</td>
         <td>${escapeHtml(r.observation_final || '')}${r.replacement_name ? `<br><strong>Reemplazo:</strong> ${escapeHtml(r.replacement_name)}` : ''}</td>
       </tr>`).join('');
-    return `<div class="report-page">${reportHeader(settings, title)}<table class="report-table" style="font-size:10px;"><thead><tr><th>FECHA</th><th>DOCENTE</th><th>INASISTENCIA</th><th>OBSERVACIÓN</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Sin registros en el mes.</td></tr>'}</tbody></table>${signatures(settings)}</div>`;
+    return `<div class="report-page portrait">${reportHeader(settings, title)}<table class="report-table" style="font-size:10px;"><thead><tr><th>FECHA</th><th>DOCENTE</th><th>INASISTENCIA</th><th>OBSERVACIÓN</th></tr></thead><tbody>${rows || '<tr><td colspan="4">Sin registros en el mes.</td></tr>'}</tbody></table>${signatures(settings)}</div>`;
   }
 
   function buildResumenDocente({ settings, teachers, types, records, year, monthIndex }) {
@@ -158,13 +174,17 @@
       <table class="report-table" style="font-size:9px;"><thead><tr><th>FECHA</th><th>TIPO</th><th>OBSERVACIÓN</th></tr></thead><tbody>
         ${recs.sort((a, b) => a.date.localeCompare(b.date)).map(r => `<tr><td>${fmtDate(r.date)}</td><td>${escapeHtml(typeName(r.absence_code, types))}</td><td>${escapeHtml(r.observation_final || '')}${r.replacement_name ? ` Reemplazo: ${escapeHtml(r.replacement_name)}` : ''}</td></tr>`).join('')}
       </tbody></table>`).join('');
-    return `<div class="report-page">${reportHeader(settings, title)}${sections || '<p>Sin registros en el mes.</p>'}${signatures(settings)}</div>`;
+    return `<div class="report-page portrait">${reportHeader(settings, title)}${sections || '<p>Sin registros en el mes.</p>'}${signatures(settings)}</div>`;
   }
 
   window.ReportPDF = {
-    printPlanilla(data) { openPrintWindow(buildPlanilla(data), 'Planilla mensual'); },
-    printDetalle(data) { openPrintWindow(buildDetalle(data), 'Detalle mensual'); },
-    printResumenDocente(data) { openPrintWindow(buildResumenDocente(data), 'Resumen por docente'); },
+    printPlanilla(data) { openPrintWindow(buildPlanilla(data), 'Planilla mensual', 'landscape'); },
+    printDetalle(data) { openPrintWindow(buildDetalle(data), 'Detalle mensual', 'portrait'); },
+    printResumenDocente(data) { openPrintWindow(buildResumenDocente(data), 'Resumen por docente', 'portrait'); },
+    printTodo(data) {
+      const html = buildPlanilla(data) + buildDetalle(data) + buildResumenDocente(data);
+      openPrintWindow(html, 'Asistencia GGM - Reportes del mes', 'mixed');
+    },
     buildPlanilla,
     buildDetalle,
     buildResumenDocente
