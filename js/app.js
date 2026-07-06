@@ -23,7 +23,7 @@
   const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const APP_ICON_URL = new URL('icons/icon-192.png', window.location.href).href;
   const NOTIFICATION_BADGE_URL = new URL('icons/notification-badge-96.png', window.location.href).href;
-  const AI_CORRECTION_QUEUE_KEY = 'pending_ai_corrections';
+  const LOCAL_CORRECTION_QUEUE_KEY = 'pending_ai_corrections';
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
@@ -101,6 +101,117 @@
 
   function cleanObservationText(text) {
     return ensureFinalPunctuation(capitalizeFirst(String(text || '').replace(/\s+/g, ' ').trim()));
+  }
+
+  function normalizeForDictionary(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  const OBSERVATION_WORD_CORRECTIONS = Object.freeze({
+    q: 'que', ke: 'que', k: 'que', qe: 'que', xq: 'porque', pq: 'porque', pk: 'porque', porq: 'porque', porqe: 'porque', porquee: 'porque',
+    d: 'de', dl: 'del', cn: 'con', cmo: 'como', tmb: 'también', tambn: 'también', bn: 'bien', ps: 'pues',
+    ud: 'usted', uds: 'ustedes', profe: 'docente', profesor: 'docente', profesora: 'docente',
+    bino: 'vino', vno: 'vino', asistio: 'asistió', asistira: 'asistirá', asistiria: 'asistiría', inasistio: 'inasistió',
+    falto: 'faltó', llego: 'llegó', llegara: 'llegará', llegaria: 'llegaría', salio: 'salió', retiro: 'retiró', regreso: 'regresó',
+    aviso: 'avisó', avizo: 'avisó', avixo: 'avisó', abiso: 'avisó', abizo: 'avisó', notifico: 'notificó', reporto: 'reportó',
+    informo: 'informó', comunico: 'comunicó', manifesto: 'manifestó', solicito: 'solicitó', presento: 'presentó', entrego: 'entregó',
+    envio: 'envió', mando: 'mandó', adjunto: 'adjuntó', compartio: 'compartió', explico: 'explicó', pidio: 'pidió',
+    wasap: 'WhatsApp', wasapp: 'WhatsApp', watsap: 'WhatsApp', whatsap: 'WhatsApp', whatsaap: 'WhatsApp', whatssap: 'WhatsApp',
+    whatsapp: 'WhatsApp', whasap: 'WhatsApp', whasapp: 'WhatsApp', guasap: 'WhatsApp', wsp: 'WhatsApp', wpp: 'WhatsApp', wapp: 'WhatsApp', wp: 'WhatsApp',
+    msj: 'mensaje', msg: 'mensaje', mjs: 'mensaje', sms: 'mensaje', cel: 'celular', celu: 'celular', telefono: 'teléfono', telefonico: 'telefónico',
+    medica: 'médica', medico: 'médico', medicas: 'médicas', medicos: 'médicos', cita: 'cita', eps: 'EPS',
+    incapacidad: 'incapacidad', incapacida: 'incapacidad', incap: 'incapacidad', remision: 'remisión', formula: 'fórmula', diagnostico: 'diagnóstico',
+    hospitalizacion: 'hospitalización', urgencia: 'urgencia', urgencias: 'urgencias', consulta: 'consulta', control: 'control',
+    excusa: 'excusa', escusa: 'excusa', soporte: 'soporte', soport: 'soporte', constancia: 'constancia', certificacion: 'certificación',
+    calamidad: 'calamidad', domestica: 'doméstica', familiar: 'familiar', fallecimiento: 'fallecimiento', enfermedad: 'enfermedad',
+    permiso: 'permiso', sindicado: 'sindical', sindical: 'sindical', reunion: 'reunión', capacitación: 'capacitación', capacitacion: 'capacitación',
+    rectoria: 'rectoría', coordinacion: 'coordinación', secretaria: 'secretaría', comision: 'comisión', servicio: 'servicio',
+    jurado: 'jurado', votacion: 'votación', elecciones: 'elecciones', escrutinio: 'escrutinio',
+    transporte: 'transporte', camioneros: 'camioneros', bloqueo: 'bloqueo', paro: 'paro', lluvia: 'lluvia', inundacion: 'inundación',
+    institucion: 'institución', institucional: 'institucional', actividad: 'actividad', acompañamiento: 'acompañamiento', salida: 'salida',
+    pedagogica: 'pedagógica', academica: 'académica', laboral: 'laboral', personal: 'personal', administrativo: 'administrativo',
+    informacion: 'información', observacion: 'observación', justificacion: 'justificación', reemplazo: 'reemplazo', reemplasa: 'reemplaza',
+    manana: 'mañana', dia: 'día', dias: 'días', sabado: 'sábado', miercoles: 'miércoles', tambien: 'también', despues: 'después',
+    papa: 'papá', mama: 'mamá', hijo: 'hijo', hija: 'hija', esposo: 'esposo', esposa: 'esposa', acudiente: 'acudiente',
+    llegaria: 'llegaría', llegara: 'llegará', tendra: 'tendrá', tenia: 'tenía', teniaa: 'tenía', debia: 'debía', podia: 'podía',
+    esta: 'está', estan: 'están', estaba: 'estaba', habia: 'había', habiaa: 'había', haria: 'haría', realizo: 'realizó',
+    realizara: 'realizará', realizaria: 'realizaría', envioo: 'envió', avisa: 'avisa', dice: 'dice'
+  });
+
+  const OBSERVATION_PHRASE_CORRECTIONS = [
+    [/\bno\s+vino\b/gi, 'no asistió'],
+    [/\bno\s+asistio\b/gi, 'no asistió'],
+    [/\bno\s+quiso\b/gi, 'manifestó que no asistiría por decisión personal'],
+    [/\bpor\s+que\b/gi, 'porque'],
+    [/\bx\s+WhatsApp\b/gi, 'por WhatsApp'],
+    [/\bpor\s+WhatsApp\b/gi, 'por WhatsApp'],
+    [/\bpor\s+mensaje\s+de\s+WhatsApp\b/gi, 'por WhatsApp'],
+    [/\bmensaje\s+por\s+WhatsApp\b/gi, 'mensaje por WhatsApp'],
+    [/\benvio\s+mensaje\b/gi, 'envió mensaje'],
+    [/\benvió\s+mensaje\s+por\s+WhatsApp\b/gi, 'informó por WhatsApp'],
+    [/\bavisó\s+por\s+WhatsApp\b/gi, 'informó por WhatsApp'],
+    [/\blo\s+avisó\s+por\s+WhatsApp\b/gi, 'lo informó por WhatsApp'],
+    [/\bse\s+recibio\b/gi, 'se recibió'],
+    [/\bse\s+recibió\s+excusa\b/gi, 'se recibió excusa'],
+    [/\bsin\s+informacion\b/gi, 'sin información'],
+    [/\bcita\s+medica\b/gi, 'cita médica'],
+    [/\bincapacidad\s+medica\b/gi, 'incapacidad médica'],
+    [/\bcalamidad\s+domestica\b/gi, 'calamidad doméstica'],
+    [/\bjurado\s+de\s+votacion\b/gi, 'jurado de votación'],
+    [/\bpermiso\s+sindical\b/gi, 'permiso sindical'],
+    [/\bremision\s+medica\b/gi, 'remisión médica'],
+    [/\breunion\s+institucional\b/gi, 'reunión institucional'],
+    [/\bcompromiso\s+institucional\b/gi, 'compromiso institucional'],
+    [/\bexcusa\s+medica\b/gi, 'excusa médica'],
+    [/\bsoporte\s+medico\b/gi, 'soporte médico']
+  ];
+
+  function preserveBasicCase(original, replacement) {
+    if (!original) return replacement;
+    if (original === original.toUpperCase() && original.length > 1 && replacement.length <= 4) return replacement.toUpperCase();
+    if (/^[A-ZÁÉÍÓÚÑ]/.test(original) && replacement !== 'WhatsApp' && replacement !== 'EPS') return capitalizeFirst(replacement);
+    return replacement;
+  }
+
+  function applyObservationDictionary(text) {
+    let value = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!value) return '';
+
+    value = value
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .replace(/([,.;:!?])(?=\S)/g, '$1 ');
+
+    value = value.replace(/\b[\p{L}\p{N}_@.-]+\b/gu, token => {
+      const normalized = normalizeForDictionary(token).replace(/^@/, '');
+      const replacement = OBSERVATION_WORD_CORRECTIONS[normalized];
+      return replacement ? preserveBasicCase(token, replacement) : token;
+    });
+
+    OBSERVATION_PHRASE_CORRECTIONS.forEach(([pattern, replacement]) => {
+      value = value.replace(pattern, replacement);
+    });
+
+    value = value
+      .replace(/\bno asistió porque manifestó que no asistiría por decisión personal\b/gi, 'no asistió porque manifestó que no asistiría por decisión personal')
+      .replace(/\bno asistió porque informó\b/gi, 'no asistió e informó')
+      .replace(/\bavisó que\b/gi, 'informó que')
+      .replace(/\bdice que\b/gi, 'informa que')
+      .replace(/\bme informó\b/gi, 'informó')
+      .replace(/\bme avisó\b/gi, 'informó')
+      .replace(/\bpor decisión personal por WhatsApp\b/gi, 'por decisión personal e informó por WhatsApp')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return cleanObservationText(capitalizeSentences(value));
+  }
+
+  function capitalizeSentences(text) {
+    return String(text || '').replace(/(^|[.!?]\s+)([a-záéíóúñ])/g, (_, prefix, letter) => prefix + letter.toUpperCase());
   }
 
   function appendDictationText(current, addition) {
@@ -238,7 +349,7 @@
       await fetchWeather();
       applyTheme();
       renderAll();
-      if (navigator.onLine) await processPendingAICorrections({ silent: true, refresh: true });
+      await processPendingLocalCorrections({ silent: true, refresh: true });
       toast(navigator.onLine ? 'Datos cargados desde Supabase.' : 'Modo sin conexión. Usando datos guardados.');
     } catch (err) {
       console.error(err);
@@ -265,7 +376,7 @@
       rector_title: 'Rectora',
       daily_reminder_enabled: true,
       daily_reminder_time: '07:00',
-      ai_correction_enabled: true,
+      local_correction_enabled: true,
       save_original_observation: true
     };
   }
@@ -304,16 +415,16 @@
     const btn = $('#syncBtn') || $('#settingsSyncBtn');
     if (btn) btn.disabled = true;
     const result = await Api.syncQueue();
-    const aiResult = result.ok ? await processPendingAICorrections({ silent: true, refresh: false }) : { corrected: 0, failed: 0 };
+    const correctionResult = result.ok ? await processPendingLocalCorrections({ silent: true, refresh: false }) : { corrected: 0, failed: 0 };
     if (btn) btn.disabled = false;
     if (!result.ok && result.message) return toast(result.message);
     if (result.failed) return toast(`Sincronización parcial: ${result.synced} ok, ${result.failed} pendientes.`);
     await refreshData();
 
     const syncText = result.synced ? `Sincronizado: ${result.synced} cambios.` : 'Todo está sincronizado.';
-    const aiText = aiResult.corrected ? ` IA corrigió ${aiResult.corrected} observación(es).` : '';
-    const aiFail = aiResult.failed ? ` ${aiResult.failed} corrección(es) siguen pendientes.` : '';
-    toast(`${syncText}${aiText}${aiFail}`);
+    const correctionText = correctionResult.corrected ? ` Se corrigieron ${correctionResult.corrected} observación(es).` : '';
+    const correctionFail = correctionResult.failed ? ` ${correctionResult.failed} corrección(es) siguen pendientes.` : '';
+    toast(`${syncText}${correctionText}${correctionFail}`);
   }
 
   async function refreshData() {
@@ -657,49 +768,45 @@
     </div>`;
   }
 
-  function aiStatus(text, active = false) {
-    const status = $('#aiStatus');
+  function correctionStatus(text, active = false) {
+    const status = $('#correctionStatus');
     if (!status) return;
     status.textContent = text;
     status.classList.remove('hidden');
     status.classList.toggle('listening', !!active);
   }
 
-  async function pendingAICorrections() {
-    const queue = await LocalDB.get(AI_CORRECTION_QUEUE_KEY, []);
+  async function pendingLocalCorrections() {
+    const queue = await LocalDB.get(LOCAL_CORRECTION_QUEUE_KEY, []);
     return Array.isArray(queue) ? queue : [];
   }
 
-  async function queueAICorrection(item) {
-    const queue = await pendingAICorrections();
+  async function queueLocalCorrection(item) {
+    const queue = await pendingLocalCorrections();
     const nextItem = {
       id: item.id,
       raw: String(item.raw || '').trim(),
       payload: item.payload,
-      attempts: item.attempts || 0,
-      lastError: item.lastError || null,
       createdAt: item.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     const idx = queue.findIndex(q => q.id === nextItem.id);
     if (idx >= 0) queue[idx] = { ...queue[idx], ...nextItem };
     else queue.push(nextItem);
-    await LocalDB.set(AI_CORRECTION_QUEUE_KEY, queue);
+    await LocalDB.set(LOCAL_CORRECTION_QUEUE_KEY, queue);
   }
 
-  async function removeAICorrection(id) {
-    const queue = await pendingAICorrections();
-    await LocalDB.set(AI_CORRECTION_QUEUE_KEY, queue.filter(q => q.id !== id));
+  async function removeLocalCorrection(id) {
+    const queue = await pendingLocalCorrections();
+    await LocalDB.set(LOCAL_CORRECTION_QUEUE_KEY, queue.filter(q => q.id !== id));
   }
 
-  async function correctObservationWithAI(rawText) {
-    const corrected = await Api.correctObservation(rawText);
-    return cleanObservationText(corrected);
+  function correctObservationLocal(rawText) {
+    return applyObservationDictionary(rawText);
   }
 
-  async function processPendingAICorrections({ silent = false, refresh = false } = {}) {
-    if (!navigator.onLine) return { corrected: 0, failed: 0 };
-    const queue = await pendingAICorrections();
+  async function processPendingLocalCorrections({ silent = false, refresh = false } = {}) {
+    const queue = await pendingLocalCorrections();
     if (!queue.length) return { corrected: 0, failed: 0 };
 
     let correctedCount = 0;
@@ -709,11 +816,11 @@
       try {
         const raw = String(item.raw || item.payload?.observation_original || item.payload?.observation_final || '').trim();
         if (!raw) {
-          await removeAICorrection(item.id);
+          await removeLocalCorrection(item.id);
           continue;
         }
 
-        const corrected = await correctObservationWithAI(raw);
+        const corrected = correctObservationLocal(raw);
         const payload = {
           ...item.payload,
           id: item.id,
@@ -725,21 +832,21 @@
         const result = await Api.saveAttendance(payload);
         if (result?.queued) {
           failedCount += 1;
-          await queueAICorrection({ ...item, attempts: (item.attempts || 0) + 1, lastError: 'La corrección quedó en cola de sincronización.' });
+          await queueLocalCorrection({ ...item, payload });
           continue;
         }
 
-        await removeAICorrection(item.id);
+        await removeLocalCorrection(item.id);
         correctedCount += 1;
       } catch (err) {
         failedCount += 1;
-        await queueAICorrection({ ...item, attempts: (item.attempts || 0) + 1, lastError: err?.message || String(err) });
+        console.warn('No se pudo aplicar la corrección local pendiente:', err);
       }
     }
 
     if (correctedCount && refresh) await refreshData();
-    if (correctedCount && !silent) toast(`IA corrigió ${correctedCount} observación(es) pendiente(s).`);
-    if (failedCount && !silent) toast(`${failedCount} corrección(es) siguen pendientes.`);
+    if (correctedCount && !silent) toast(`Se corrigieron ${correctedCount} observación(es) pendiente(s).`);
+    if (failedCount && !silent) toast(`${failedCount} corrección(es) siguen pendientes por sincronización.`);
     return { corrected: correctedCount, failed: failedCount };
   }
 
@@ -755,8 +862,8 @@
         <label class="field"><span>Tipo</span><select id="recType">${typeOptions}</select></label>
         <label class="field" id="replacementField" style="display:none;"><span>Reemplazo</span><input id="recReplacement" value="${escapeHtml(record?.replacement_name || '')}" placeholder="Nombre de quien reemplazó"></label>
         <label class="field"><span>Observación</span><textarea id="recObservation" placeholder="Ej: no vino xq avisó por wasap que tenía cita médica.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
-        <div id="aiStatus" class="voice-status hidden" aria-live="polite"></div>
-        <p class="tiny muted">La IA corrige ortografía, abreviaturas y redacción institucional antes de guardar. Si no hay conexión, se guarda y se corrige automáticamente al volver internet.</p>
+        <div id="correctionStatus" class="voice-status hidden" aria-live="polite"></div>
+        <p class="tiny muted">El botón corrige localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar. No requiere conexión ni servicios externos.</p>
         <button type="button" class="primary-btn" id="saveRecordBtn">Corregir y enviar</button>
       </div>
     `;
@@ -786,39 +893,26 @@
       if (!rawObservation) return toast('Escribe una observación.');
 
       btn.disabled = true;
-      let payload = { ...basePayload };
-      let usedAI = false;
-      let queuedAI = false;
+      correctionStatus('Corrigiendo observación...', true);
+      const corrected = correctObservationLocal(rawObservation);
+      $('#recObservation').value = corrected;
 
-      if (navigator.onLine) {
-        try {
-          aiStatus('🪄 Corrigiendo con IA...', true);
-          const corrected = await correctObservationWithAI(rawObservation);
-          payload.observation_corrected = corrected;
-          payload.observation_final = corrected;
-          usedAI = true;
-          aiStatus('✅ Corrección lista. Guardando novedad...', false);
-        } catch (err) {
-          console.warn('No se pudo corregir con IA. Queda pendiente.', err);
-          queuedAI = true;
-          await queueAICorrection({ id: recordIdValue, raw: rawObservation, payload: basePayload, lastError: err?.message || String(err) });
-          aiStatus('🟡 No se pudo corregir ahora. Se guardará y se corregirá luego.', false);
-        }
-      } else {
-        queuedAI = true;
-        await queueAICorrection({ id: recordIdValue, raw: rawObservation, payload: basePayload, lastError: 'Sin conexión' });
-        aiStatus('🟡 Sin conexión. Se guardará y se corregirá luego.', false);
-      }
+      const payload = {
+        ...basePayload,
+        observation_corrected: corrected,
+        observation_final: corrected
+      };
 
+      correctionStatus('Corrección lista. Guardando novedad...', false);
       const saveResult = await Api.saveAttendance(payload);
       await Api.saveDayRecord({ date: payload.date, status: 'con_novedades', is_school_day: true });
+      if (saveResult?.queued) await queueLocalCorrection({ id: recordIdValue, raw: rawObservation, payload });
       btn.disabled = false;
       closeModal();
       await refreshData();
 
-      if (usedAI) toast('Novedad corregida con IA y guardada.');
-      else if (queuedAI || saveResult?.queued) toast('Novedad guardada. La IA la corregirá cuando haya conexión.');
-      else toast('Novedad guardada.');
+      if (saveResult?.queued) toast('Novedad corregida localmente y guardada en cola para sincronizar.');
+      else toast('Novedad corregida y guardada.');
     });
   }
 

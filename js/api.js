@@ -194,41 +194,6 @@
       return queueOrRun({ table: 'attendance_records', action: 'upsert', payload, match: 'id' });
     },
 
-    async correctObservation(text) {
-      const raw = String(text || '').trim();
-      if (!raw) return '';
-      if (!navigator.onLine) throw new Error('Sin conexión para corregir con IA.');
-
-      const sessionResult = await client.auth.getSession();
-      const accessToken = sessionResult?.data?.session?.access_token;
-      if (!accessToken) throw new Error('No hay sesión activa para corregir con IA.');
-
-      const functionUrl = `${config.supabaseUrl}/functions/v1/correct-observation`;
-      let response;
-      try {
-        response = await fetch(functionUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': config.supabaseKey,
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({ text: raw })
-        });
-      } catch (err) {
-        throw new Error('No se pudo conectar con la Edge Function correct-observation. Revisa que esté desplegada en Supabase y que tenga CORS/JWT configurado.');
-      }
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.error || `La Edge Function respondió con error ${response.status}.`);
-      }
-
-      const corrected = String(data?.corrected || data?.text || '').trim();
-      if (!corrected) throw new Error('La IA no devolvió texto corregido.');
-      return corrected;
-    },
-
     async softDeleteAttendance(id) {
       const payload = { id, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() };
       const rows = await fromCache('attendance_records');
