@@ -833,3 +833,31 @@ h1, h2, h3, p { margin-top: 0; }
   transform: scale(.99) !important;
   filter: brightness(.96) !important;
 }
+
+/* v0.10 - detalle docente: Cargo, Sede y Estado en 3 columnas siempre */
+.teacher-detail-grid.teacher-info-only {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+.teacher-detail-grid.teacher-info-only .info-chip {
+  min-height: 58px;
+}
+@media (max-width: 720px) {
+  .teacher-detail-grid.teacher-info-only {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px;
+  }
+  .teacher-detail-grid.teacher-info-only .info-chip {
+    padding: 8px 6px;
+    min-height: 56px;
+  }
+  .teacher-detail-grid.teacher-info-only .info-chip small {
+    font-size: 8.5px;
+    letter-spacing: .03em;
+  }
+  .teacher-detail-grid.teacher-info-only .info-chip strong {
+    font-size: clamp(11px, 3vw, 13px);
+    letter-spacing: -.01em;
+    text-transform: none;
+    line-height: 1.1;
+  }
+}
