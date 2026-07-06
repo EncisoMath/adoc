@@ -9,6 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -16,7 +18,7 @@
     <section id="loginView" class="login-view hidden">
       <div class="login-card ps-card">
         <div class="brand-row">
-          <div class="brand-mark">GGM</div>
+          <img class="brand-mark" src="icons/logoapp.png" alt="Logo Asistencia GGM" />
           <div>
             <h1>Asistencia GGM</h1>
             <p>Ingreso inicial del dispositivo</p>
@@ -42,9 +44,12 @@
 
     <section id="mainView" class="main-view hidden">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Asistencia GGM</p>
-          <h1 id="topTitle">Hoy</h1>
+        <div class="topbar-brand">
+          <img class="topbar-logo" src="icons/logoapp.png" alt="Logo Asistencia GGM" />
+          <div>
+            <p class="eyebrow">Asistencia GGM</p>
+            <h1 id="topTitle">Hoy</h1>
+          </div>
         </div>
         <div class="top-actions">
           <select id="globalMonthSelect" class="month-selector" title="Mes de trabajo"></select>

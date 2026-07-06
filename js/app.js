@@ -21,6 +21,8 @@
 
   const DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const APP_ICON_URL = new URL('icons/icon-192.png', window.location.href).href;
+  const NOTIFICATION_BADGE_URL = new URL('icons/notification-badge-96.png', window.location.href).href;
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
@@ -1176,10 +1178,27 @@
   async function askNotifications() {
     if (!('Notification' in window)) return toast('Este navegador no soporta notificaciones.');
     const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      new Notification('Asistencia GGM', { body: 'Recordatorios activados en este dispositivo.' });
+    if (permission !== 'granted') return toast('No se activaron las notificaciones.');
+
+    const options = {
+      body: 'Recordatorios activados en este dispositivo.',
+      icon: APP_ICON_URL,
+      badge: NOTIFICATION_BADGE_URL
+    };
+
+    try {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg?.showNotification) await reg.showNotification('Asistencia GGM', options);
+        else new Notification('Asistencia GGM', options);
+      } else {
+        new Notification('Asistencia GGM', options);
+      }
       toast('Notificaciones activadas.');
-    } else toast('No se activaron las notificaciones.');
+    } catch (err) {
+      console.warn('No se pudo mostrar la notificación de prueba:', err);
+      toast('Permiso concedido. La notificación de prueba no se pudo mostrar.');
+    }
   }
 
   function exportBackup() {

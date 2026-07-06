@@ -1,4 +1,4 @@
-const CACHE_NAME = 'asistencia-ggm-v0-11-0';
+const CACHE_NAME = 'asistencia-ggm-v0-12-0';
 const APP_SHELL = [
   './',
   './index.html',
@@ -9,8 +9,16 @@ const APP_SHELL = [
   './js/api.js',
   './js/pdf.js',
   './js/app.js',
-  './icons/icon-192.svg',
-  './icons/icon-512.svg'
+  './icons/logoapp.png',
+  './icons/logocole.png',
+  './icons/notificacion.png',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/maskable-192.png',
+  './icons/maskable-512.png',
+  './icons/apple-touch-icon.png',
+  './icons/notification-icon-192.png',
+  './icons/notification-badge-96.png'
 ];
 
 self.addEventListener('install', event => {
