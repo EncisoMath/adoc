@@ -377,7 +377,7 @@
   async function generate(kind, data) {
     try {
       const logo = await loadLogoDataUrl();
-      const doc = createDoc(kind === 'planilla' ? 'landscape' : 'portrait');
+      const doc = createDoc((kind === 'planilla' || kind === 'todo') ? 'landscape' : 'portrait');
       if (!hasAutoTable(doc)) throw new Error('jsPDF AutoTable no esta cargado.');
       if (kind === 'planilla') {
         addPlanilla(doc, data, logo, true);

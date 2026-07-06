@@ -1,7 +1,8 @@
 Cambio realizado:
-- En los reportes PDF, el logo institucional ya no aparece arriba del membrete.
-- Ahora sale al lado izquierdo, al mismo nivel del membrete.
-- El título del reporte queda debajo, centrado.
+- En GENERAR TODO EN UNO, la sección PLANILLA mensual ahora arranca en página horizontal.
+- Las secciones DETALLE y RESUMEN POR DOCENTE siguen agregándose en páginas verticales.
+- Se actualizó la versión de caché del service worker para que Android/Chrome tome el nuevo js/pdf.js.
 
-Archivo tocado:
+Archivos tocados:
 - js/pdf.js
+- service-worker.js
