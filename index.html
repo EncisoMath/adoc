@@ -13,7 +13,32 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
+<body class="app-loading">
+  <div id="bootLoader" class="boot-loader" role="status" aria-live="polite" aria-label="Cargando aplicativo">
+    <div class="boot-loader-card">
+      <div class="boot-loader-shapes" aria-hidden="true">
+        <span class="boot-shape boot-shape-circle"></span>
+        <span class="boot-shape boot-shape-square"></span>
+        <span class="boot-shape boot-shape-triangle"></span>
+        <span class="boot-shape boot-shape-diamond"></span>
+        <span class="boot-shape boot-shape-cross">×</span>
+      </div>
+      <div class="boot-loader-copy">
+        <p class="boot-loader-kicker">Asistencia GGM</p>
+        <h1>Cargando aplicativo</h1>
+        <p id="bootLoaderSubtitle" class="boot-loader-subtitle">Consultando en la base de datos</p>
+        <p id="bootLoaderStage" class="boot-loader-stage">Preparando conexión segura...</p>
+      </div>
+      <div class="boot-progress" aria-hidden="true">
+        <div id="bootProgressBar" class="boot-progress-bar" style="width: 6%"></div>
+      </div>
+      <div class="boot-progress-meta">
+        <span id="bootProgressLabel">6%</span>
+        <span id="bootLoaderTable">Inicializando</span>
+      </div>
+    </div>
+  </div>
+
   <div id="appShell" class="app-shell booting">
     <section id="loginView" class="login-view hidden">
       <div class="login-card ps-card">

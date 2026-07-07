@@ -249,6 +249,45 @@
     setTimeout(() => el.remove(), ms);
   }
 
+  function updateBootLoader({ progress, subtitle, stage, table } = {}) {
+    const loader = $('#bootLoader');
+    if (!loader) return;
+    const safeProgress = Math.max(6, Math.min(100, Number(progress) || 6));
+    const subtitleEl = $('#bootLoaderSubtitle');
+    const stageEl = $('#bootLoaderStage');
+    const barEl = $('#bootProgressBar');
+    const labelEl = $('#bootProgressLabel');
+    const tableEl = $('#bootLoaderTable');
+    if (subtitleEl && subtitle) subtitleEl.textContent = subtitle;
+    if (stageEl && stage) stageEl.textContent = stage;
+    if (barEl) barEl.style.width = `${safeProgress}%`;
+    if (labelEl) labelEl.textContent = `${Math.round(safeProgress)}%`;
+    if (tableEl && table) tableEl.textContent = table;
+  }
+
+  function showBootLoader(step) {
+    const loader = $('#bootLoader');
+    if (!loader) return;
+    loader.classList.remove('done');
+    document.body.classList.add('app-loading');
+    updateBootLoader(step);
+  }
+
+  function hideBootLoader(delay = 260) {
+    const loader = $('#bootLoader');
+    $('#appShell')?.classList.remove('booting');
+    document.body.classList.remove('app-loading');
+    if (!loader) return;
+    updateBootLoader({
+      progress: 100,
+      subtitle: 'Aplicativo listo',
+      stage: 'Mostrando información cargada.',
+      table: 'Completado'
+    });
+    window.setTimeout(() => loader.classList.add('done'), delay);
+  }
+
+
   function applyTheme() {
     const s = state.settings || {};
     const mode = s.theme_mode || 'light';
@@ -260,7 +299,13 @@
   }
 
   async function init() {
-    $('#appShell').classList.remove('booting');
+    showBootLoader({
+      progress: 8,
+      subtitle: 'Consultando en la base de datos',
+      stage: 'Preparando interfaz y conexión segura...',
+      table: 'Inicializando'
+    });
+
     bindAuth();
     bindNavigation();
     bindModalControls();
@@ -270,8 +315,13 @@
       await syncNow();
     });
 
+    updateBootLoader({ progress: 14, stage: 'Revisando sesión guardada del dispositivo...', table: 'Autenticación' });
     state.session = await Api.session();
-    if (!state.session) return showLogin();
+    if (!state.session) {
+      showLogin();
+      hideBootLoader(180);
+      return;
+    }
     await loadApp();
   }
 
@@ -341,21 +391,62 @@
 
   async function loadApp() {
     showMain();
+    showBootLoader({
+      progress: 18,
+      subtitle: 'Consultando en la base de datos',
+      stage: 'Sincronizando cambios pendientes...',
+      table: 'Cola local'
+    });
+
     try {
-      const data = await Api.bootstrap();
-      Object.assign(state, data);
-      state.settings = data.settings || defaultSettings();
-      if ((!data.teachers?.length || !data.types?.length) && Api.apiErrors?.length) {
+      await Api.syncQueue();
+
+      updateBootLoader({ progress: 27, stage: 'Consultando configuración institucional y colores...', table: 'app_settings' });
+      const settings = await Api.getSettings();
+      state.settings = settings || defaultSettings();
+      applyTheme();
+
+      updateBootLoader({ progress: 39, stage: 'Consultando listado de docentes activos e inactivos...', table: 'teachers' });
+      const teachers = await Api.getTeachers();
+
+      updateBootLoader({ progress: 49, stage: 'Consultando tipos de ausencia y novedades...', table: 'absence_types' });
+      const types = await Api.getAbsenceTypes();
+
+      updateBootLoader({ progress: 61, stage: 'Consultando registros de asistencia y novedades...', table: 'attendance_records' });
+      const records = await Api.getAttendanceRecords();
+
+      updateBootLoader({ progress: 70, stage: 'Consultando estado de días, jornadas y observaciones...', table: 'day_records' });
+      const days = await Api.getDayRecords();
+
+      updateBootLoader({ progress: 78, stage: 'Consultando festivos y días no hábiles...', table: 'holidays' });
+      const holidays = await Api.getHolidays();
+
+      updateBootLoader({ progress: 84, stage: 'Consultando destinatarios de correo institucional...', table: 'email_recipients' });
+      const recipients = await Api.getRecipients();
+
+      updateBootLoader({ progress: 90, stage: 'Consultando soportes adjuntos registrados...', table: 'attachments' });
+      const attachments = await Api.getAttachments();
+
+      Object.assign(state, { settings: state.settings, teachers, types, records, days, holidays, recipients, attachments });
+      if ((!teachers?.length || !types?.length) && Api.apiErrors?.length) {
         const first = Api.apiErrors[0];
         toast(`Supabase no entregó datos de ${first.table}: ${first.message}. Ejecuta el parche SQL de permisos.` , 7000);
       }
+
+      updateBootLoader({ progress: 94, stage: 'Consultando clima y contexto de la jornada...', table: 'Clima' });
       await fetchWeather();
-      applyTheme();
+
+      updateBootLoader({ progress: 97, stage: 'Organizando calendario, resumen de hoy y reportes...', table: 'Interfaz' });
       renderAll();
+
+      updateBootLoader({ progress: 99, stage: 'Aplicando correcciones locales pendientes...', table: 'Diccionario local' });
       await processPendingLocalCorrections({ silent: true, refresh: true });
+
+      hideBootLoader();
       toast(navigator.onLine ? 'Datos cargados desde Supabase.' : 'Modo sin conexión. Usando datos guardados.');
     } catch (err) {
       console.error(err);
+      hideBootLoader(120);
       toast('No se pudo cargar la app. Revisa Supabase/Auth.');
     }
   }
