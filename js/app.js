@@ -400,6 +400,8 @@
 
     try {
       await Api.syncQueue();
+      updateBootLoader({ progress: 23, stage: 'Subiendo soportes pendientes si volvió la conexión...', table: 'soportes' });
+      await processPendingSupportAttachments({ silent: true, refresh: false });
 
       updateBootLoader({ progress: 27, stage: 'Consultando configuración institucional y colores...', table: 'app_settings' });
       const settings = await Api.getSettings();
@@ -510,6 +512,7 @@
     if (btn) btn.disabled = true;
     const result = await Api.syncQueue();
     const correctionResult = result.ok ? await processPendingLocalCorrections({ silent: true, refresh: false }) : { corrected: 0, failed: 0 };
+    const supportResult = result.ok ? await processPendingSupportAttachments({ silent: true, refresh: false }) : { uploaded: 0, failed: 0, pending: 0 };
     if (btn) btn.disabled = false;
     if (!result.ok && result.message) return toast(result.message);
     if (result.failed) return toast(`Sincronización parcial: ${result.synced} ok, ${result.failed} pendientes.`);
@@ -518,7 +521,9 @@
     const syncText = result.synced ? `Sincronizado: ${result.synced} cambios.` : 'Todo está sincronizado.';
     const correctionText = correctionResult.corrected ? ` Se corrigieron ${correctionResult.corrected} observación(es).` : '';
     const correctionFail = correctionResult.failed ? ` ${correctionResult.failed} corrección(es) siguen pendientes.` : '';
-    toast(`${syncText}${correctionText}${correctionFail}`);
+    const supportText = supportResult.uploaded ? ` Soportes subidos: ${supportResult.uploaded}.` : '';
+    const supportFail = supportResult.failed ? ` ${supportResult.failed} soporte(s) siguen pendientes.` : '';
+    toast(`${syncText}${correctionText}${correctionFail}${supportText}${supportFail}`);
   }
 
   async function refreshData() {
@@ -607,33 +612,126 @@
     return list.map(f => `${f.name}${f.size ? ` (${formatFileSize(f.size)})` : ''}`).join(' · ');
   }
 
-  async function uploadRecordSupports(recordPayload, files) {
+  function supportRecordSnapshot(recordPayload) {
+    return {
+      id: recordPayload.id,
+      date: recordPayload.date,
+      teacher_id: recordPayload.teacher_id,
+      absence_code: recordPayload.absence_code,
+      observation_original: recordPayload.observation_original || null,
+      observation_corrected: recordPayload.observation_corrected || null,
+      observation_final: recordPayload.observation_final || null,
+      replacement_name: recordPayload.replacement_name || null,
+      has_attachments: true
+    };
+  }
+
+  async function queuePendingSupport(recordPayload, file) {
+    if (!file) throw new Error('No se recibió el archivo de soporte.');
+    const item = {
+      id: crypto.randomUUID(),
+      recordId: recordPayload.id,
+      date: recordPayload.date,
+      caption: `Soporte de ${recordPayload.date}`,
+      file,
+      fileName: file.name || 'soporte',
+      mimeType: file.type || 'application/octet-stream',
+      fileSize: Number.isFinite(file.size) ? file.size : null,
+      recordPayload: supportRecordSnapshot(recordPayload)
+    };
+    return LocalDB.addPendingAttachment(item);
+  }
+
+  async function uploadOrQueueRecordSupports(recordPayload, files) {
     const selected = [...(files || [])];
-    if (!selected.length) return { uploaded: 0, failed: 0 };
-    if (!navigator.onLine) throw new Error('Los soportes solo se pueden subir con conexión.');
+    if (!selected.length) return { uploaded: 0, queued: 0, failed: 0 };
 
     let uploaded = 0;
+    let queued = 0;
     let failed = 0;
+
     for (const file of selected) {
       if (file.size > MAX_SUPPORT_FILE_SIZE) {
         failed += 1;
         console.warn('Soporte omitido por tamaño:', file.name);
         continue;
       }
+
+      let done = false;
+      if (navigator.onLine) {
+        try {
+          await Api.uploadAttachment({
+            recordId: recordPayload.id,
+            date: recordPayload.date,
+            file,
+            caption: `Soporte de ${recordPayload.date}`
+          });
+          uploaded += 1;
+          done = true;
+        } catch (err) {
+          console.warn('No se pudo subir soporte ahora; queda pendiente:', file.name, err);
+        }
+      }
+
+      if (!done) {
+        try {
+          await queuePendingSupport(recordPayload, file);
+          queued += 1;
+        } catch (err) {
+          failed += 1;
+          console.warn('No se pudo guardar soporte pendiente:', file.name, err);
+        }
+      }
+    }
+
+    return { uploaded, queued, failed };
+  }
+
+  async function processPendingSupportAttachments({ silent = false, refresh = false } = {}) {
+    const queue = await LocalDB.pendingAttachmentsAll();
+    if (!queue.length) return { uploaded: 0, failed: 0, pending: 0 };
+    if (!navigator.onLine) {
+      if (!silent) toast(`${queue.length} soporte(s) pendiente(s). Se subirán cuando vuelva la conexión.`, 6000);
+      return { uploaded: 0, failed: queue.length, pending: queue.length };
+    }
+
+    let uploaded = 0;
+    let failed = 0;
+    const touchedRecords = new Map();
+
+    for (const item of queue.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))) {
       try {
+        const file = item.file || (item.blob ? new File([item.blob], item.fileName || 'soporte', { type: item.mimeType || 'application/octet-stream' }) : null);
+        if (!file) throw new Error('Archivo pendiente no disponible en el dispositivo.');
+
         await Api.uploadAttachment({
-          recordId: recordPayload.id,
-          date: recordPayload.date,
+          recordId: item.recordId,
+          date: item.date,
           file,
-          caption: `Soporte de ${recordPayload.date}`
+          caption: item.caption || `Soporte de ${item.date || ''}`.trim()
         });
+
+        if (item.recordPayload?.id) touchedRecords.set(item.recordPayload.id, item.recordPayload);
+        await LocalDB.removePendingAttachment(item.id);
         uploaded += 1;
       } catch (err) {
         failed += 1;
-        console.warn('No se pudo subir soporte:', file.name, err);
+        console.warn('No se pudo sincronizar soporte pendiente:', item?.fileName || item?.id, err);
       }
     }
-    return { uploaded, failed };
+
+    for (const payload of touchedRecords.values()) {
+      try {
+        await Api.saveAttendance({ ...payload, has_attachments: true });
+      } catch (err) {
+        console.warn('No se pudo marcar novedad con soporte:', payload.id, err);
+      }
+    }
+
+    if (uploaded && refresh) await refreshData();
+    if (uploaded && !silent) toast(`Soportes sincronizados: ${uploaded}.`);
+    if (failed && !silent) toast(`${failed} soporte(s) siguen pendientes.`, 6000);
+    return { uploaded, failed, pending: Math.max(0, queue.length - uploaded) };
   }
 
   function computeStats(date = state.viewDate) {
@@ -1041,7 +1139,7 @@
         </div>
         <p class="tiny muted" id="supportSummary">${record?.has_attachments ? 'Este registro ya tiene soporte(s) guardado(s). Puedes adjuntar más si hace falta.' : 'Ningún soporte adjunto.'}</p>
         <div id="correctionStatus" class="voice-status hidden" aria-live="polite"></div>
-        <p class="tiny muted">El botón corrige localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar. No requiere conexión. Los soportes sí requieren conexión para subirse.</p>
+        <p class="tiny muted">El botón corrige localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar. Si adjuntas soportes sin conexión, quedan pendientes y se suben solos al volver internet.</p>
         <button type="button" class="primary-btn" id="saveRecordBtn">Corregir y enviar</button>
       </div>
     `;
@@ -1079,7 +1177,7 @@
         observation_corrected: null,
         observation_final: cleanObservationText(rawObservation),
         replacement_name: $('#recType').value === 'RM' ? $('#recReplacement').value.trim() : null,
-        has_attachments: record?.has_attachments || false
+        has_attachments: !!(record?.has_attachments || selectedSupportFiles.length)
       };
 
       if (!basePayload.date || !basePayload.teacher_id || !basePayload.absence_code) return toast('Faltan datos obligatorios.');
@@ -1101,17 +1199,12 @@
       await Api.saveDayRecord({ date: payload.date, status: 'con_novedades', is_school_day: true });
       if (saveResult?.queued) await queueLocalCorrection({ id: recordIdValue, raw: rawObservation, payload });
 
-      let supportResult = { uploaded: 0, failed: 0 };
+      let supportResult = { uploaded: 0, queued: 0, failed: 0 };
       if (selectedSupportFiles.length) {
-        if (saveResult?.queued || !navigator.onLine) {
-          supportResult.failed = selectedSupportFiles.length;
-          toast('La novedad se guardó, pero los soportes necesitan conexión para subirse.', 6000);
-        } else {
-          correctionStatus('Subiendo soporte(s)...', true);
-          supportResult = await uploadRecordSupports(payload, selectedSupportFiles);
-          if (supportResult.uploaded) {
-            await Api.saveAttendance({ ...payload, has_attachments: true });
-          }
+        correctionStatus(navigator.onLine && !saveResult?.queued ? 'Subiendo soporte(s)...' : 'Guardando soporte(s) pendientes...', true);
+        supportResult = await uploadOrQueueRecordSupports(payload, selectedSupportFiles);
+        if (supportResult.uploaded || supportResult.queued) {
+          await Api.saveAttendance({ ...payload, has_attachments: true });
         }
       }
 
@@ -1119,8 +1212,14 @@
       closeModal();
       await refreshData();
 
-      if (saveResult?.queued) toast('Novedad corregida localmente y guardada en cola para sincronizar.');
-      else if (selectedSupportFiles.length) toast(`Novedad guardada. Soportes subidos: ${supportResult.uploaded}. Fallidos: ${supportResult.failed}.`, 6000);
+      if (selectedSupportFiles.length) {
+        const parts = [];
+        if (supportResult.uploaded) parts.push(`subidos: ${supportResult.uploaded}`);
+        if (supportResult.queued) parts.push(`pendientes: ${supportResult.queued}`);
+        if (supportResult.failed) parts.push(`fallidos: ${supportResult.failed}`);
+        const suffix = supportResult.queued ? ' Se subirán solos cuando vuelva la conexión.' : '';
+        toast(`Novedad guardada. Soportes ${parts.join(', ') || 'procesados'}.${suffix}`, 7000);
+      } else if (saveResult?.queued) toast('Novedad corregida localmente y guardada en cola para sincronizar.');
       else toast('Novedad corregida y guardada.');
     });
   }

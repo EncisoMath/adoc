@@ -900,10 +900,11 @@ body.app-loading {
 
 .boot-loader-card {
   width: min(430px, 100%);
-  min-height: 420px;
+  height: 420px;
   display: grid;
-  align-content: center;
-  gap: 18px;
+  grid-template-rows: 120px minmax(150px, 1fr) 12px 18px;
+  align-content: stretch;
+  gap: 16px;
   padding: 26px;
   border: 1px solid rgba(255, 255, 255, .13);
   border-radius: 22px;
@@ -937,7 +938,7 @@ body.app-loading {
   position: absolute;
   display: block;
   filter: drop-shadow(0 12px 22px rgba(0, 0, 0, .28));
-  animation: bootFloat 2.8s ease-in-out infinite;
+  will-change: transform;
 }
 
 .boot-shape-circle {
@@ -947,6 +948,7 @@ body.app-loading {
   top: 34px;
   border-radius: 999px;
   background: #ff006e;
+  animation: bootCircleMove 2.35s ease-in-out infinite;
 }
 
 .boot-shape-square {
@@ -956,7 +958,7 @@ body.app-loading {
   top: 20px;
   border-radius: 14px;
   background: #1368ce;
-  animation-delay: -.8s;
+  animation: bootSquareMove 2.6s ease-in-out infinite;
 }
 
 .boot-shape-triangle {
@@ -967,7 +969,7 @@ body.app-loading {
   border-left: 31px solid transparent;
   border-right: 31px solid transparent;
   border-bottom: 56px solid #EBB513;
-  animation-delay: -1.2s;
+  animation: bootTriangleMove 2.45s ease-in-out infinite;
 }
 
 .boot-shape-diamond {
@@ -978,8 +980,7 @@ body.app-loading {
   transform: rotate(45deg);
   border-radius: 10px;
   background: #24b49a;
-  animation-name: bootFloatDiamond;
-  animation-delay: -.35s;
+  animation: bootDiamondMove 2.5s ease-in-out infinite;
 }
 
 .boot-shape-cross {
@@ -993,7 +994,7 @@ body.app-loading {
   font-size: 64px;
   line-height: .7;
   font-weight: 900;
-  animation-delay: -1.55s;
+  animation: bootCrossMove 2.15s ease-in-out infinite;
 }
 
 .boot-loader-kicker {
@@ -1014,18 +1015,27 @@ body.app-loading {
 }
 
 .boot-loader-subtitle {
+  height: 20px;
   margin: 12px 0 0;
   color: rgba(255, 247, 251, .84);
   font-size: 15px;
   font-weight: 700;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .boot-loader-stage {
-  min-height: 22px;
+  height: 38px;
   margin: 10px 0 0;
   color: rgba(255, 247, 251, .68);
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .boot-progress {
@@ -1048,25 +1058,36 @@ body.app-loading {
 .boot-progress-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
   color: rgba(255, 247, 251, .72);
   font-size: 12px;
   font-weight: 800;
 }
 
-.boot-progress-meta span:last-child {
-  text-align: right;
+@keyframes bootCircleMove {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  45% { transform: translate3d(10px, -18px, 0) scale(1.08); }
+  70% { transform: translate3d(-5px, -6px, 0) scale(.98); }
 }
 
-@keyframes bootFloat {
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-  50% { transform: translate3d(0, -14px, 0) rotate(8deg) scale(1.06); }
+@keyframes bootSquareMove {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(-14px, 14px, 0) rotate(10deg); }
 }
 
-@keyframes bootFloatDiamond {
+@keyframes bootTriangleMove {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(0, -20px, 0) rotate(-7deg); }
+}
+
+@keyframes bootDiamondMove {
   0%, 100% { transform: translate3d(0, 0, 0) rotate(45deg) scale(1); }
-  50% { transform: translate3d(0, -14px, 0) rotate(58deg) scale(1.06); }
+  50% { transform: translate3d(12px, -16px, 0) rotate(65deg) scale(1.08); }
+}
+
+@keyframes bootCrossMove {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(-8px, -18px, 0) rotate(18deg); }
 }
 
 @keyframes bootSpin {
@@ -1076,6 +1097,6 @@ body.app-loading {
 @media (prefers-reduced-motion: reduce) {
   .boot-loader-card::before,
   .boot-shape {
-    animation: none;
+    animation: none !important;
   }
 }
