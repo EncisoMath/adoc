@@ -983,7 +983,7 @@
       <div class="day-actions-list">
         <button type="button" class="report-btn report-card-btn" id="addRecordBtn"><strong>Registrar novedad docente</strong><span>Agrega una inasistencia, permiso, reemplazo u otra novedad del día.</span></button>
         <button type="button" class="report-btn report-card-btn" id="dayNoNewsBtn"><strong>Marcar sin novedades</strong><span>Confirma que este día fue revisado y no hubo novedades docentes.</span></button>
-        <button type="button" class="report-btn report-card-btn" id="institutionalBtn"><strong>Evento institucional</strong><span>Registra paro, asamblea, reunión, comisión, festivo u otro evento del colegio.</span></button>
+        <button type="button" class="report-btn report-card-btn" id="institutionalBtn"><strong>Evento institucional</strong><span>Registra paro, día cívico, compensatorio, receso, suspensión u otro evento del colegio.</span></button>
       </div>
       ${day && (day.status === 'institucional' || day.status === 'no_laboral' || day.observation) ? `<div class="panel">${day.institutional_type ? `<strong>${escapeHtml(day.institutional_type)}</strong><br>` : ''}<span class="muted">${escapeHtml(day.observation || day.institutional_title || '')}</span></div>` : ''}
       <h3>Registros del día</h3>
@@ -1315,12 +1315,19 @@
 
   function openInstitutionalForm(dateStr) {
     const existing = state.days.find(d => d.date === dateStr);
-    const types = ['Paro','Asamblea','Reunión','Comisión','Jornada pedagógica','Festivo','Actividad institucional','Otro'];
+    const types = ['Paro o actividad sindical','Asamblea o reunión institucional','Comisión','Jornada pedagógica','Festivo','Día cívico','Día compensatorio','Receso escolar','Suspensión de actividades','Actividad institucional','Elecciones','Emergencia o calamidad','Duelo institucional','Otro'];
+    const legacyTypeMap = {
+      'Paro': 'Paro o actividad sindical',
+      'Asamblea': 'Asamblea o reunión institucional',
+      'Reunión': 'Asamblea o reunión institucional',
+      'Suspensión de clases': 'Suspensión de actividades'
+    };
+    const selectedType = legacyTypeMap[existing?.institutional_type] || existing?.institutional_type || types[0];
     $('#modalContent').innerHTML = `
       <h2>Evento institucional</h2>
       <div class="form-grid">
         <label class="field"><span>Fecha</span><input id="instDate" type="date" value="${escapeHtml(dateStr)}"></label>
-        <label class="field"><span>Tipo</span><select id="instType">${types.map(t => `<option ${existing?.institutional_type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label class="field"><span>Tipo</span><select id="instType">${types.map(t => `<option ${selectedType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label class="field"><span>Título corto</span><input id="instTitle" value="${escapeHtml(existing?.institutional_title || '')}" placeholder="Ej: Asamblea general"></label>
         <label class="field"><span>Observación</span><textarea id="instObs">${escapeHtml(existing?.observation || '')}</textarea></label>
         <button type="button" class="primary-btn" id="saveInstBtn">Guardar evento</button>
