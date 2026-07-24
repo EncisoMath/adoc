@@ -21,6 +21,74 @@
     return teachers.find(t => t.id === id)?.full_name || 'Docente';
   }
 
+  const PDF_DAY_EVENT_TYPES = new Set([
+    'Paro o actividad sindical','Asamblea o reunión institucional','Comisión','Jornada pedagógica','Festivo',
+    'Día cívico','Día compensatorio','Receso escolar','Suspensión de actividades','Actividad institucional',
+    'Elecciones','Emergencia o calamidad','Duelo institucional','Otro'
+  ]);
+  const PDF_LEGACY_DAY_TYPE_MAP = {
+    'Paro': 'Paro o actividad sindical',
+    'Asamblea': 'Asamblea o reunión institucional',
+    'Reunión': 'Asamblea o reunión institucional',
+    'Suspensión de clases': 'Suspensión de actividades'
+  };
+  const PDF_DAY_EVENT_MARKER = '[[ASGGM_EVENT_TYPE:';
+
+  function pdfDayEventMeta(dayRec) {
+    if (!dayRec) return { type: 'Evento institucional', title: '' };
+    const rawTitle = String(dayRec.institutional_title || '');
+    if (rawTitle.startsWith(PDF_DAY_EVENT_MARKER)) {
+      const end = rawTitle.indexOf(']]', PDF_DAY_EVENT_MARKER.length);
+      if (end > -1) {
+        const encoded = rawTitle.slice(PDF_DAY_EVENT_MARKER.length, end);
+        let decoded = '';
+        try { decoded = decodeURIComponent(encoded); } catch { decoded = encoded; }
+        return {
+          type: PDF_LEGACY_DAY_TYPE_MAP[decoded] || decoded || 'Otro',
+          title: rawTitle.slice(end + 2).trim()
+        };
+      }
+    }
+    const mapped = PDF_LEGACY_DAY_TYPE_MAP[dayRec.institutional_type] || dayRec.institutional_type || 'Otro';
+    if (mapped === 'Otro' && PDF_DAY_EVENT_TYPES.has(rawTitle) && rawTitle !== 'Otro') {
+      return { type: rawTitle, title: '' };
+    }
+    return { type: mapped, title: rawTitle.trim() };
+  }
+
+  function pdfDayEventType(dayRec) {
+    return pdfDayEventMeta(dayRec).type;
+  }
+
+  function pdfDayEventDescription(dayRec) {
+    const meta = pdfDayEventMeta(dayRec);
+    const title = String(meta.title || '').trim();
+    const observation = String(dayRec?.observation || '').trim();
+    if (title && observation) return `${title}: ${observation}`;
+    return title || observation || 'Sin observación';
+  }
+
+  function monthDayEvents(data) {
+    const prefix = `${data.year}-${String(data.monthIndex + 1).padStart(2, '0')}-`;
+    return (data.days || [])
+      .filter(day => day?.date?.startsWith(prefix) && (day.status === 'institucional' || day.status === 'no_laboral'))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  function fmtDayMonth(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const month = MONTHS_FILE[d.getMonth()];
+    return `${d.getDate()} de ${month.charAt(0).toUpperCase()}${month.slice(1)}`;
+  }
+
+  function pdfDayEventSummary(dayRec) {
+    return `${pdfDayEventType(dayRec)} - ${pdfDayEventDescription(dayRec)}`;
+  }
+
+  function pdfDayEventLine(dayRec) {
+    return `${fmtDayMonth(dayRec.date)} - ${pdfDayEventSummary(dayRec)}`;
+  }
+
   function monthTitle(year, monthIndex) {
     return `${MONTHS[monthIndex]} ${year}`;
   }
@@ -55,9 +123,10 @@
   function dayClassesForPdf(date, dayRec, holidaySet) {
     const iso = date.toISOString().slice(0, 10);
     const isWeekendDay = date.getDay() === 0 || date.getDay() === 6;
-    const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || dayRec?.institutional_type === 'Festivo';
+    const eventType = pdfDayEventType(dayRec);
+    const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || eventType === 'Festivo';
     const isInst = dayRec?.status === 'institucional';
-    if (isInst) return { label: dayRec.institutional_type || dayRec.institutional_title || 'Evento institucional', institutional: true, bg: '#bdd7ee' };
+    if (isInst) return { label: eventType, institutional: true, bg: '#bdd7ee' };
     if (isHoliday) return { label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
     if (isWeekendDay) return { label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
     return { label: WEEK[date.getDay()], institutional: false, bg: '' };
@@ -287,27 +356,88 @@
       }
     });
 
-    const finalY = doc.lastAutoTable?.finalY || startY;
-    const legendY = Math.min(finalY + 5, doc.internal.pageSize.getHeight() - 25);
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let contentY = (doc.lastAutoTable?.finalY || startY) + 5;
     const legend = data.types.map(t => `${t.code}: ${t.name}`).join('   ');
+    const legendLines = doc.splitTextToSize(legend, usable);
+    const legendHeight = Math.max(4, legendLines.length * 3.1);
+    if (contentY + legendHeight > pageHeight - 30) {
+      doc.addPage([330, 215], 'landscape');
+      contentY = 12;
+    }
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.8);
-    doc.text(doc.splitTextToSize(legend, usable), 7, legendY);
-    addSignatures(doc, data.settings, legendY + 18);
+    doc.text(legendLines, 7, contentY);
+    contentY += legendHeight + 3;
+
+    const eventRows = monthDayEvents(data).map(day => [pdfDayEventLine(day)]);
+    doc.autoTable({
+      startY: contentY,
+      head: [['EVENTOS DEL MES']],
+      body: eventRows.length ? eventRows : [['Sin eventos institucionales registrados.']],
+      theme: 'grid',
+      margin: { left: 7, right: 7, top: 12, bottom: 18 },
+      tableWidth: usable,
+      styles: {
+        font: 'helvetica',
+        fontSize: 7.2,
+        cellPadding: 1.15,
+        lineColor: [90, 90, 90],
+        lineWidth: 0.1,
+        textColor: [17, 17, 17],
+        overflow: 'linebreak'
+      },
+      headStyles: {
+        fillColor: [241, 241, 241],
+        textColor: [17, 17, 17],
+        fontStyle: 'bold',
+        halign: 'left'
+      },
+      columnStyles: { 0: { cellWidth: usable } }
+    });
+
+    addSignatures(doc, data.settings, (doc.lastAutoTable?.finalY || contentY) + 18);
   }
 
   function addDetalle(doc, data, logoDataUrl, isFirstPage = true) {
     if (!isFirstPage) doc.addPage([215, 330], 'portrait');
     const title = `DETALLE ASISTENCIA DOCENTES MES ${monthTitle(data.year, data.monthIndex)}`;
     const startY = drawHeader(doc, data.settings, title, logoDataUrl, 'portrait');
-    const rows = data.records.filter(r => !r.deleted_at)
-      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || teacherName(a.teacher_id, data.teachers).localeCompare(teacherName(b.teacher_id, data.teachers), 'es'))
-      .map(r => [
+    const detailEntries = [
+      ...data.records.filter(r => !r.deleted_at).map(record => ({ kind: 'record', date: record.date, record })),
+      ...monthDayEvents(data).map(day => ({ kind: 'event', date: day.date, day }))
+    ].sort((a, b) => {
+      const byDate = (a.date || '').localeCompare(b.date || '');
+      if (byDate) return byDate;
+      if (a.kind !== b.kind) return a.kind === 'event' ? -1 : 1;
+      if (a.kind === 'record' && b.kind === 'record') {
+        return teacherName(a.record.teacher_id, data.teachers).localeCompare(teacherName(b.record.teacher_id, data.teachers), 'es');
+      }
+      return 0;
+    });
+
+    const rows = detailEntries.map(item => {
+      if (item.kind === 'event') {
+        return [
+          {
+            content: fmtDate(item.day.date),
+            styles: { fontStyle: 'bold', halign: 'center', fillColor: [221, 235, 247] }
+          },
+          {
+            content: pdfDayEventSummary(item.day),
+            colSpan: 3,
+            styles: { fontStyle: 'bold', fillColor: [221, 235, 247], textColor: [17, 17, 17] }
+          }
+        ];
+      }
+      const r = item.record;
+      return [
         fmtDate(r.date),
         teacherName(r.teacher_id, data.teachers),
         typeName(r.absence_code, data.types),
         `${r.observation_final || ''}${r.replacement_name ? '\nReemplazo: ' + r.replacement_name : ''}`
-      ]);
+      ];
+    });
 
     doc.autoTable({
       startY,
