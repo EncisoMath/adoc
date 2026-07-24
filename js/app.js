@@ -1123,24 +1123,48 @@
 
   function openAttendanceForm(dateStr, recordId = null) {
     const record = recordId ? state.records.find(r => r.id === recordId) : null;
-    const teachersOptions = state.teachers.filter(t => t.active !== false || t.id === record?.teacher_id).sort((a,b) => a.full_name.localeCompare(b.full_name, 'es')).map(t => `<option value="${t.id}" ${record?.teacher_id === t.id ? 'selected' : ''}>${escapeHtml(t.full_name)}${t.active === false ? ' (inactivo)' : ''}</option>`).join('');
+    const availableTeachers = state.teachers
+      .filter(t => t.active !== false || t.id === record?.teacher_id)
+      .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+    const teachersOptions = availableTeachers
+      .map(t => `<option value="${t.id}" ${record?.teacher_id === t.id ? 'selected' : ''}>${escapeHtml(t.full_name)}${t.active === false ? ' (inactivo)' : ''}</option>`)
+      .join('');
+    const teachersChecklist = availableTeachers
+      .filter(t => t.active !== false)
+      .map(t => `<label class="teacher-check-option" data-teacher-name="${escapeHtml(normalizeText(t.full_name))}">
+        <input type="checkbox" class="rec-teacher-check" value="${t.id}">
+        <span>${escapeHtml(t.full_name)}</span>
+      </label>`)
+      .join('');
     const typeOptions = state.types.map(t => `<option value="${t.code}" ${record?.absence_code === t.code ? 'selected' : ''}>${escapeHtml(t.code)} · ${escapeHtml(t.name)}</option>`).join('');
+    const teacherField = record
+      ? `<label class="field"><span>Docente</span><select id="recTeacher">${teachersOptions}</select></label>`
+      : `<div class="field teacher-multi-field">
+          <span>Docentes</span>
+          <div class="teacher-picker-tools">
+            <input id="recTeacherSearch" type="search" placeholder="Buscar docente..." autocomplete="off">
+            <button type="button" class="ghost-btn teacher-select-visible" id="selectVisibleTeachersBtn">Seleccionar visibles</button>
+          </div>
+          <div class="teacher-check-list" id="recTeacherList">${teachersChecklist || '<p class="tiny muted">No hay docentes activos disponibles.</p>'}</div>
+          <p class="tiny muted teacher-selected-summary" id="teacherSelectedSummary">Ningún docente seleccionado.</p>
+        </div>`;
+
     $('#modalContent').innerHTML = `
       <h2>${record ? 'Editar novedad' : 'Registrar novedad'}</h2>
       <div class="form-grid">
         <label class="field"><span>Fecha</span><input id="recDate" type="date" value="${escapeHtml(record?.date || dateStr)}"></label>
-        <label class="field"><span>Docente</span><select id="recTeacher">${teachersOptions}</select></label>
+        ${teacherField}
         <label class="field"><span>Tipo</span><select id="recType">${typeOptions}</select></label>
         <label class="field" id="replacementField" style="display:none;"><span>Reemplazo</span><input id="recReplacement" value="${escapeHtml(record?.replacement_name || '')}" placeholder="Nombre de quien reemplazó"></label>
-        <label class="field"><span>Observación</span><textarea id="recObservation" placeholder="Ej: no vino xq avisó por wasap que tenía cita médica.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
+        <label class="field"><span>Observación <small>(opcional)</small></span><textarea id="recObservation" placeholder="Puedes dejar este campo vacío.">${escapeHtml(record?.observation_final || record?.observation_original || '')}</textarea></label>
         <input id="supportInput" type="file" accept="${SUPPORT_FILE_ACCEPT}" multiple hidden>
         <div class="actions-row" style="margin:0;">
           <button type="button" class="secondary-btn" id="attachSupportBtn">Adjuntar soportes</button>
         </div>
         <p class="tiny muted" id="supportSummary">${record?.has_attachments ? 'Este registro ya tiene soporte(s) guardado(s). Puedes adjuntar más si hace falta.' : 'Ningún soporte adjunto.'}</p>
         <div id="correctionStatus" class="voice-status hidden" aria-live="polite"></div>
-        <p class="tiny muted">El botón corrige localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar. Si adjuntas soportes sin conexión, quedan pendientes y se suben solos al volver internet.</p>
-        <button type="button" class="primary-btn" id="saveRecordBtn">Corregir y enviar</button>
+        <p class="tiny muted">La observación es opcional. Si escribes una, se corrigen localmente abreviaturas, tildes, mayúsculas y palabras comunes antes de guardar.${record ? '' : ' Los mismos datos se aplicarán a todos los docentes seleccionados.'} Si adjuntas soportes sin conexión, quedan pendientes y se suben solos al volver internet.</p>
+        <button type="button" class="primary-btn" id="saveRecordBtn">${record ? 'Guardar cambios' : 'Guardar novedad'}</button>
       </div>
     `;
     const recType = $('#recType');
@@ -1148,6 +1172,42 @@
     const toggleReplacement = () => replacementField.style.display = recType.value === 'RM' ? 'grid' : 'none';
     recType.addEventListener('change', toggleReplacement);
     toggleReplacement();
+
+    const selectedTeacherIds = () => record
+      ? [$('#recTeacher')?.value].filter(Boolean)
+      : $$('.rec-teacher-check:checked', $('#recTeacherList')).map(input => input.value);
+
+    const updateTeacherSelectionSummary = () => {
+      if (record) return;
+      const selectedCount = selectedTeacherIds().length;
+      const summary = $('#teacherSelectedSummary');
+      const saveButton = $('#saveRecordBtn');
+      if (summary) summary.textContent = selectedCount
+        ? `${selectedCount} docente${selectedCount === 1 ? '' : 's'} seleccionado${selectedCount === 1 ? '' : 's'}.`
+        : 'Ningún docente seleccionado.';
+      if (saveButton) saveButton.textContent = selectedCount > 1 ? `Guardar ${selectedCount} novedades` : 'Guardar novedad';
+    };
+
+    if (!record) {
+      const teacherSearch = $('#recTeacherSearch');
+      teacherSearch?.addEventListener('input', () => {
+        const query = normalizeText(teacherSearch.value);
+        $$('.teacher-check-option', $('#recTeacherList')).forEach(option => {
+          option.hidden = !option.dataset.teacherName.includes(query);
+        });
+      });
+      $$('.rec-teacher-check', $('#recTeacherList')).forEach(input => input.addEventListener('change', updateTeacherSelectionSummary));
+      $('#selectVisibleTeachersBtn')?.addEventListener('click', () => {
+        const visibleInputs = $$('.teacher-check-option', $('#recTeacherList'))
+          .filter(option => !option.hidden)
+          .map(option => $('.rec-teacher-check', option));
+        const shouldSelect = visibleInputs.some(input => input && !input.checked);
+        visibleInputs.forEach(input => { if (input) input.checked = shouldSelect; });
+        $('#selectVisibleTeachersBtn').textContent = shouldSelect ? 'Quitar visibles' : 'Seleccionar visibles';
+        updateTeacherSelectionSummary();
+      });
+      updateTeacherSelectionSummary();
+    }
 
     let selectedSupportFiles = [];
     $('#attachSupportBtn')?.addEventListener('click', () => $('#supportInput')?.click());
@@ -1167,60 +1227,82 @@
     $('#saveRecordBtn').addEventListener('click', async () => {
       const btn = $('#saveRecordBtn');
       const rawObservation = $('#recObservation').value.trim();
-      const recordIdValue = record?.id || crypto.randomUUID();
-      const basePayload = {
-        id: recordIdValue,
-        date: $('#recDate').value,
-        teacher_id: $('#recTeacher').value,
-        absence_code: $('#recType').value,
-        observation_original: rawObservation || null,
-        observation_corrected: null,
-        observation_final: cleanObservationText(rawObservation),
-        replacement_name: $('#recType').value === 'RM' ? $('#recReplacement').value.trim() : null,
-        has_attachments: !!(record?.has_attachments || selectedSupportFiles.length)
-      };
+      const teacherIds = selectedTeacherIds();
+      const date = $('#recDate').value;
+      const absenceCode = $('#recType').value;
+      const replacementName = absenceCode === 'RM' ? $('#recReplacement').value.trim() : null;
 
-      if (!basePayload.date || !basePayload.teacher_id || !basePayload.absence_code) return toast('Faltan datos obligatorios.');
-      if (!rawObservation) return toast('Escribe una observación.');
-
-      btn.disabled = true;
-      correctionStatus('Corrigiendo observación...', true);
-      const corrected = correctObservationLocal(rawObservation);
-      $('#recObservation').value = corrected;
-
-      const payload = {
-        ...basePayload,
-        observation_corrected: corrected,
-        observation_final: corrected
-      };
-
-      correctionStatus('Corrección lista. Guardando novedad...', false);
-      const saveResult = await Api.saveAttendance(payload);
-      await Api.saveDayRecord({ date: payload.date, status: 'con_novedades', is_school_day: true });
-      if (saveResult?.queued) await queueLocalCorrection({ id: recordIdValue, raw: rawObservation, payload });
-
-      let supportResult = { uploaded: 0, queued: 0, failed: 0 };
-      if (selectedSupportFiles.length) {
-        correctionStatus(navigator.onLine && !saveResult?.queued ? 'Subiendo soporte(s)...' : 'Guardando soporte(s) pendientes...', true);
-        supportResult = await uploadOrQueueRecordSupports(payload, selectedSupportFiles);
-        if (supportResult.uploaded || supportResult.queued) {
-          await Api.saveAttendance({ ...payload, has_attachments: true });
-        }
+      if (!date || !absenceCode || !teacherIds.length) {
+        return toast(teacherIds.length ? 'Faltan datos obligatorios.' : 'Selecciona al menos un docente.');
       }
 
-      btn.disabled = false;
-      closeModal();
-      await refreshData();
+      btn.disabled = true;
+      try {
+        let corrected = '';
+        if (rawObservation) {
+          correctionStatus('Corrigiendo observación...', true);
+          corrected = correctObservationLocal(rawObservation);
+          $('#recObservation').value = corrected;
+        }
 
-      if (selectedSupportFiles.length) {
-        const parts = [];
-        if (supportResult.uploaded) parts.push(`subidos: ${supportResult.uploaded}`);
-        if (supportResult.queued) parts.push(`pendientes: ${supportResult.queued}`);
-        if (supportResult.failed) parts.push(`fallidos: ${supportResult.failed}`);
-        const suffix = supportResult.queued ? ' Se subirán solos cuando vuelva la conexión.' : '';
-        toast(`Novedad guardada. Soportes ${parts.join(', ') || 'procesados'}.${suffix}`, 7000);
-      } else if (saveResult?.queued) toast('Novedad corregida localmente y guardada en cola para sincronizar.');
-      else toast('Novedad corregida y guardada.');
+        const payloads = teacherIds.map(teacherId => ({
+          id: record?.id || crypto.randomUUID(),
+          date,
+          teacher_id: teacherId,
+          absence_code: absenceCode,
+          observation_original: rawObservation || null,
+          observation_corrected: corrected || null,
+          observation_final: corrected || null,
+          replacement_name: replacementName || null,
+          has_attachments: !!(record?.has_attachments || selectedSupportFiles.length)
+        }));
+
+        correctionStatus(payloads.length > 1 ? `Guardando ${payloads.length} novedades...` : 'Guardando novedad...', false);
+
+        let queuedRecords = 0;
+        let supportResult = { uploaded: 0, queued: 0, failed: 0 };
+        for (const payload of payloads) {
+          const saveResult = await Api.saveAttendance(payload);
+          if (saveResult?.queued) {
+            queuedRecords += 1;
+            if (rawObservation) await queueLocalCorrection({ id: payload.id, raw: rawObservation, payload });
+          }
+
+          if (selectedSupportFiles.length) {
+            correctionStatus(navigator.onLine && !saveResult?.queued ? 'Subiendo soporte(s)...' : 'Guardando soporte(s) pendientes...', true);
+            const currentSupportResult = await uploadOrQueueRecordSupports(payload, selectedSupportFiles);
+            supportResult.uploaded += currentSupportResult.uploaded;
+            supportResult.queued += currentSupportResult.queued;
+            supportResult.failed += currentSupportResult.failed;
+            if (currentSupportResult.uploaded || currentSupportResult.queued) {
+              await Api.saveAttendance({ ...payload, has_attachments: true });
+            }
+          }
+        }
+
+        await Api.saveDayRecord({ date, status: 'con_novedades', is_school_day: true });
+        closeModal();
+        await refreshData();
+
+        const recordLabel = payloads.length === 1 ? 'Novedad guardada.' : `${payloads.length} novedades guardadas.`;
+        if (selectedSupportFiles.length) {
+          const parts = [];
+          if (supportResult.uploaded) parts.push(`subidos: ${supportResult.uploaded}`);
+          if (supportResult.queued) parts.push(`pendientes: ${supportResult.queued}`);
+          if (supportResult.failed) parts.push(`fallidos: ${supportResult.failed}`);
+          const suffix = supportResult.queued ? ' Se subirán solos cuando vuelva la conexión.' : '';
+          toast(`${recordLabel} Soportes ${parts.join(', ') || 'procesados'}.${suffix}`, 7000);
+        } else if (queuedRecords) {
+          toast(`${recordLabel} ${queuedRecords} pendiente${queuedRecords === 1 ? '' : 's'} de sincronización.`);
+        } else {
+          toast(recordLabel);
+        }
+      } catch (err) {
+        console.error('No se pudo guardar la novedad:', err);
+        btn.disabled = false;
+        correctionStatus('No se pudo guardar. Revisa la conexión e inténtalo de nuevo.', false);
+        toast('No se pudo guardar la novedad.', 6000);
+      }
     });
   }
 

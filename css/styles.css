@@ -1100,3 +1100,89 @@ body.app-loading {
     animation: none !important;
   }
 }
+
+/* v0.21 - registro de una misma novedad para varios docentes */
+.teacher-multi-field { margin-bottom: 4px; }
+.teacher-multi-field > span small { text-transform: none; letter-spacing: 0; font-weight: 700; }
+.teacher-picker-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.teacher-picker-tools input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: 11px 12px;
+  outline: none;
+}
+.teacher-picker-tools input:focus {
+  border-color: var(--fuchsia);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fuchsia) 20%, transparent);
+}
+.teacher-select-visible {
+  min-height: 42px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+.teacher-check-list {
+  max-height: 250px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.teacher-check-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.teacher-check-option:hover {
+  border-color: color-mix(in srgb, var(--fuchsia) 55%, var(--line));
+}
+.teacher-check-option:active { transform: scale(.995); }
+.teacher-check-option:has(input:checked) {
+  border-color: var(--fuchsia);
+  background: color-mix(in srgb, var(--fuchsia) 9%, var(--surface));
+}
+.teacher-check-option input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: 0 0 20px;
+  accent-color: var(--fuchsia);
+}
+.teacher-check-option span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.teacher-selected-summary { margin: 0; }
+.field > span small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+@media (max-width: 520px) {
+  .teacher-picker-tools { grid-template-columns: 1fr; }
+  .teacher-select-visible { width: 100%; }
+  .teacher-check-list { max-height: 220px; }
+}
