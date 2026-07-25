@@ -1,4 +1,4 @@
-const CACHE_NAME = 'asistencia-ggm-v0-21-4';
+const CACHE_NAME = 'asistencia-ggm-v0-21-6';
 const APP_SHELL = [
   './',
   './index.html',

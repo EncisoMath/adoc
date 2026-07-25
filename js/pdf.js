@@ -338,7 +338,7 @@
         cellPadding: 0.65,
         lineColor: [51, 51, 51],
         lineWidth: 0.12,
-        textColor: [17, 17, 17],
+        textColor: [0, 0, 0],
         valign: 'middle',
         overflow: 'linebreak'
       },
@@ -346,13 +346,14 @@
         fontStyle: 'bold',
         fontSize: 5.9,
         fillColor: [241, 241, 241],
-        textColor: [17, 17, 17],
+        textColor: [0, 0, 0],
         halign: 'center',
         minCellHeight: 7
       },
       columnStyles,
       didParseCell: hook => {
         const { cell, row, column, section } = hook;
+        cell.styles.textColor = [0, 0, 0];
         const col = column.index;
         if (section === 'head' && col > 0 && col <= dayCount) {
           const meta = model.dayMeta[col - 1];
@@ -405,16 +406,17 @@
         cellPadding: 1.15,
         lineColor: [90, 90, 90],
         lineWidth: 0.1,
-        textColor: [17, 17, 17],
+        textColor: [0, 0, 0],
         overflow: 'linebreak'
       },
       headStyles: {
         fillColor: [241, 241, 241],
-        textColor: [17, 17, 17],
+        textColor: [0, 0, 0],
         fontStyle: 'bold',
         halign: 'left'
       },
-      columnStyles: { 0: { cellWidth: usable } }
+      columnStyles: { 0: { cellWidth: usable } },
+      didParseCell: hook => { hook.cell.styles.textColor = [0, 0, 0]; }
     });
 
     addSignatures(doc, data.settings, (doc.lastAutoTable?.finalY || contentY) + 18);
@@ -447,7 +449,7 @@
           {
             content: pdfDayEventSummary(item.day),
             colSpan: 3,
-            styles: { fontStyle: 'normal', halign: 'left', fillColor: [221, 235, 247], textColor: [17, 17, 17] }
+            styles: { fontStyle: 'normal', halign: 'left', fillColor: [221, 235, 247], textColor: [0, 0, 0] }
           }
         ];
       }
@@ -466,9 +468,10 @@
       body: rows.length ? rows : [['', '', '', 'Sin registros en el mes.']],
       theme: 'grid',
       margin: { left: 9, right: 9, top: startY, bottom: 14 },
-      styles: { font: 'helvetica', fontSize: 8.2, cellPadding: 1.5, lineColor: [51, 51, 51], lineWidth: 0.12, overflow: 'linebreak' },
-      headStyles: { fillColor: [241, 241, 241], textColor: [17, 17, 17], fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 56 }, 2: { cellWidth: 45 }, 3: { cellWidth: 'auto' } }
+      styles: { font: 'helvetica', fontSize: 8.2, cellPadding: 1.5, lineColor: [51, 51, 51], lineWidth: 0.12, textColor: [0, 0, 0], overflow: 'linebreak' },
+      headStyles: { fillColor: [241, 241, 241], textColor: [0, 0, 0], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 56 }, 2: { cellWidth: 45 }, 3: { cellWidth: 'auto' } },
+      didParseCell: hook => { hook.cell.styles.textColor = [0, 0, 0]; }
     });
     addSignatures(doc, data.settings, (doc.lastAutoTable?.finalY || startY) + 28);
   }
@@ -511,9 +514,10 @@
         body: rows,
         theme: 'grid',
         margin: { left: 9, right: 9, top: 48, bottom: 14 },
-        styles: { font: 'helvetica', fontSize: 7.4, cellPadding: 1.15, lineColor: [51, 51, 51], lineWidth: 0.12, overflow: 'linebreak' },
-        headStyles: { fillColor: [241, 241, 241], textColor: [17, 17, 17], fontStyle: 'bold' },
-        columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 44 }, 2: { cellWidth: 'auto' } }
+        styles: { font: 'helvetica', fontSize: 7.4, cellPadding: 1.15, lineColor: [51, 51, 51], lineWidth: 0.12, textColor: [0, 0, 0], overflow: 'linebreak' },
+        headStyles: { fillColor: [241, 241, 241], textColor: [0, 0, 0], fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 44 }, 2: { cellWidth: 'auto' } },
+        didParseCell: hook => { hook.cell.styles.textColor = [0, 0, 0]; }
       });
       y = (doc.lastAutoTable?.finalY || y) + 8;
     });
