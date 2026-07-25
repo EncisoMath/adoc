@@ -27,6 +27,113 @@
   const LOCAL_CORRECTION_QUEUE_KEY = 'pending_ai_corrections';
   const MAX_SUPPORT_FILE_SIZE = 10 * 1024 * 1024;
   const SUPPORT_FILE_ACCEPT = 'image/*,.pdf,.doc,.docx,.xls,.xlsx';
+  const DAY_EVENT_TYPES = Object.freeze([
+    'Paro o actividad sindical',
+    'Asamblea o reunión institucional',
+    'Comisión',
+    'Jornada pedagógica',
+    'Festivo',
+    'Día cívico',
+    'Día compensatorio',
+    'Receso escolar',
+    'Suspensión de actividades',
+    'Actividad institucional',
+    'Elecciones',
+    'Emergencia o calamidad',
+    'Duelo institucional',
+    'Otro'
+  ]);
+  const LEGACY_DAY_EVENT_TYPE_MAP = Object.freeze({
+    'Paro': 'Paro o actividad sindical',
+    'Asamblea': 'Asamblea o reunión institucional',
+    'Reunión': 'Asamblea o reunión institucional',
+    'Suspensión de clases': 'Suspensión de actividades'
+  });
+  const DAY_EVENT_TITLE_MARKER = '[[ASGGM_EVENT_TYPE:';
+  const DAY_EVENT_COMPACT_MARKER = '@EV1:';
+  const DAY_EVENT_TYPE_CODES = Object.freeze({
+    'Paro o actividad sindical': 'PA',
+    'Asamblea o reunión institucional': 'AR',
+    'Comisión': 'CO',
+    'Jornada pedagógica': 'JP',
+    'Festivo': 'FE',
+    'Día cívico': 'DC',
+    'Día compensatorio': 'DP',
+    'Receso escolar': 'RE',
+    'Suspensión de actividades': 'SA',
+    'Actividad institucional': 'AI',
+    'Elecciones': 'EL',
+    'Emergencia o calamidad': 'EC',
+    'Duelo institucional': 'DI',
+    'Otro': 'OT'
+  });
+  const DAY_EVENT_CODE_TYPES = Object.freeze(Object.fromEntries(
+    Object.entries(DAY_EVENT_TYPE_CODES).map(([type, code]) => [code, type])
+  ));
+
+  function dayEventStorageType(type) {
+    const compatible = {
+      'Paro o actividad sindical': 'Paro',
+      'Asamblea o reunión institucional': 'Asamblea',
+      'Comisión': 'Comisión',
+      'Jornada pedagógica': 'Jornada pedagógica',
+      'Festivo': 'Festivo',
+      'Actividad institucional': 'Actividad institucional'
+    };
+    // Los tipos nuevos se guardan como Actividad institucional para no caer en "Otro"
+    // cuando la base conserva la restricción antigua. El tipo exacto viaja en el título.
+    return compatible[type] || (type === 'Otro' ? 'Otro' : 'Actividad institucional');
+  }
+
+  function encodeDayEventTitle(type, title) {
+    const code = DAY_EVENT_TYPE_CODES[type] || DAY_EVENT_TYPE_CODES.Otro;
+    return `${DAY_EVENT_COMPACT_MARKER}${code}|${String(title || '').trim()}`;
+  }
+
+  function decodeLegacyDayEventTitle(rawTitle) {
+    if (!rawTitle.startsWith(DAY_EVENT_TITLE_MARKER)) return null;
+    const end = rawTitle.indexOf(']]', DAY_EVENT_TITLE_MARKER.length);
+    if (end < 0) return null;
+    const encodedType = rawTitle.slice(DAY_EVENT_TITLE_MARKER.length, end);
+    let type = '';
+    try { type = decodeURIComponent(encodedType); } catch { type = encodedType; }
+    return {
+      type: DAY_EVENT_TYPES.includes(type) ? type : (LEGACY_DAY_EVENT_TYPE_MAP[type] || type || 'Otro'),
+      title: rawTitle.slice(end + 2).trim()
+    };
+  }
+
+  function dayEventMeta(day) {
+    if (!day) return { type: 'Evento institucional', title: '' };
+    const rawTitle = String(day.institutional_title || '').trim();
+
+    if (rawTitle.startsWith(DAY_EVENT_COMPACT_MARKER)) {
+      const separator = rawTitle.indexOf('|', DAY_EVENT_COMPACT_MARKER.length);
+      const code = rawTitle.slice(DAY_EVENT_COMPACT_MARKER.length, separator > -1 ? separator : undefined).trim();
+      const type = DAY_EVENT_CODE_TYPES[code] || 'Otro';
+      return { type, title: separator > -1 ? rawTitle.slice(separator + 1).trim() : '' };
+    }
+
+    const legacy = decodeLegacyDayEventTitle(rawTitle);
+    if (legacy) return legacy;
+
+    if (DAY_EVENT_TYPES.includes(rawTitle)) return { type: rawTitle, title: '' };
+    for (const type of DAY_EVENT_TYPES) {
+      if (rawTitle.startsWith(`${type} | `)) return { type, title: rawTitle.slice(type.length + 3).trim() };
+      if (rawTitle.startsWith(`${type} - `)) return { type, title: rawTitle.slice(type.length + 3).trim() };
+    }
+
+    const mappedType = LEGACY_DAY_EVENT_TYPE_MAP[day.institutional_type] || day.institutional_type || 'Otro';
+    return { type: mappedType, title: rawTitle };
+  }
+
+  function dayEventType(day) {
+    return dayEventMeta(day).type;
+  }
+
+  function dayEventTitle(day) {
+    return dayEventMeta(day).title;
+  }
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
@@ -917,7 +1024,7 @@
         : count
           ? `<span class="day-pill count-pill">${count}</span>`
           : dayRec?.status === 'institucional'
-            ? `<span class="day-mini-note event-note">${escapeHtml(dayRec.institutional_type || dayRec.institutional_title || 'Evento')}</span>`
+            ? `<span class="day-mini-note event-note">${escapeHtml(dayEventType(dayRec))}</span>`
             : dayRec?.status === 'sin_novedades'
               ? '<span class="day-mini-note">Sin nov.</span>'
               : (isWeekend(iso) || holidaySet.has(iso)) ? '<span class="day-mini-note">No laboral</span>' : '';
@@ -949,7 +1056,7 @@
       const group = grouped.get(date);
       return `<section class="calendar-date-group">
         <h4>${escapeHtml(fmtLong(date))}</h4>
-        ${group.events.map(ev => `<div class="calendar-detail-item institutional-line"><span class="badge blue">${escapeHtml(ev.institutional_type || 'Evento')}</span><strong>${escapeHtml(ev.institutional_title || ev.institutional_type || 'Evento institucional')}</strong>${ev.observation ? `<p>${escapeHtml(ev.observation)}</p>` : ''}</div>`).join('')}
+        ${group.events.map(ev => { const meta = dayEventMeta(ev); return `<div class="calendar-detail-item institutional-line"><span class="badge blue">${escapeHtml(meta.type)}</span><strong>${escapeHtml(meta.title || meta.type || 'Evento institucional')}</strong>${ev.observation ? `<p>${escapeHtml(ev.observation)}</p>` : ''}</div>`; }).join('')}
         ${group.records.map(r => {
           const teacher = teacherById(r.teacher_id)?.full_name || 'Docente';
           return `<div class="calendar-detail-item">
@@ -976,6 +1083,7 @@
     state.selectedDate = dateStr;
     const records = state.records.filter(r => !r.deleted_at && r.date === dateStr);
     const day = state.days.find(d => d.date === dateStr);
+    const dayMeta = dayEventMeta(day);
     const modal = $('#modal');
     const content = $('#modalContent');
     content.innerHTML = `
@@ -985,7 +1093,7 @@
         <button type="button" class="report-btn report-card-btn" id="dayNoNewsBtn"><strong>Marcar sin novedades</strong><span>Confirma que este día fue revisado y no hubo novedades docentes.</span></button>
         <button type="button" class="report-btn report-card-btn" id="institutionalBtn"><strong>Evento institucional</strong><span>Registra paro, día cívico, compensatorio, receso, suspensión u otro evento del colegio.</span></button>
       </div>
-      ${day && (day.status === 'institucional' || day.status === 'no_laboral' || day.observation) ? `<div class="panel">${day.institutional_type ? `<strong>${escapeHtml(day.institutional_type)}</strong><br>` : ''}<span class="muted">${escapeHtml(day.observation || day.institutional_title || '')}</span></div>` : ''}
+      ${day && (day.status === 'institucional' || day.status === 'no_laboral' || day.observation) ? `<div class="panel"><strong>${escapeHtml(dayMeta.type)}</strong>${dayMeta.title ? `<br><span>${escapeHtml(dayMeta.title)}</span>` : ''}${day.observation ? `<br><span class="muted">${escapeHtml(day.observation)}</span>` : ''}</div>` : ''}
       <h3>Registros del día</h3>
       ${records.length ? `<div class="list">${records.map(r => recordListItem(r)).join('')}</div>` : '<p class="muted">Sin registros de docentes en este día.</p>'}
     `;
@@ -1315,35 +1423,31 @@
 
   function openInstitutionalForm(dateStr) {
     const existing = state.days.find(d => d.date === dateStr);
-    const types = ['Paro o actividad sindical','Asamblea o reunión institucional','Comisión','Jornada pedagógica','Festivo','Día cívico','Día compensatorio','Receso escolar','Suspensión de actividades','Actividad institucional','Elecciones','Emergencia o calamidad','Duelo institucional','Otro'];
-    const legacyTypeMap = {
-      'Paro': 'Paro o actividad sindical',
-      'Asamblea': 'Asamblea o reunión institucional',
-      'Reunión': 'Asamblea o reunión institucional',
-      'Suspensión de clases': 'Suspensión de actividades'
-    };
-    const selectedType = legacyTypeMap[existing?.institutional_type] || existing?.institutional_type || types[0];
+    const existingMeta = dayEventMeta(existing);
+    const selectedType = DAY_EVENT_TYPES.includes(existingMeta.type) ? existingMeta.type : DAY_EVENT_TYPES[0];
     $('#modalContent').innerHTML = `
       <h2>Evento institucional</h2>
       <div class="form-grid">
         <label class="field"><span>Fecha</span><input id="instDate" type="date" value="${escapeHtml(dateStr)}"></label>
-        <label class="field"><span>Tipo</span><select id="instType">${types.map(t => `<option ${selectedType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <label class="field"><span>Título corto</span><input id="instTitle" value="${escapeHtml(existing?.institutional_title || '')}" placeholder="Ej: Asamblea general"></label>
+        <label class="field"><span>Tipo</span><select id="instType">${DAY_EVENT_TYPES.map(t => `<option ${selectedType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label class="field"><span>Título corto</span><input id="instTitle" value="${escapeHtml(existingMeta.title)}" placeholder="Ej: Asamblea general"></label>
         <label class="field"><span>Observación</span><textarea id="instObs">${escapeHtml(existing?.observation || '')}</textarea></label>
         <button type="button" class="primary-btn" id="saveInstBtn">Guardar evento</button>
       </div>`;
     $('#saveInstBtn').addEventListener('click', async () => {
-      await Api.saveDayRecord({
+      const selected = $('#instType').value;
+      const result = await Api.saveDayRecord({
         date: $('#instDate').value,
-        status: $('#instType').value === 'Festivo' ? 'no_laboral' : 'institucional',
-        institutional_type: $('#instType').value,
-        institutional_title: $('#instTitle').value.trim(),
+        status: selected === 'Festivo' ? 'no_laboral' : 'institucional',
+        institutional_type: dayEventStorageType(selected),
+        institutional_title: encodeDayEventTitle(selected, $('#instTitle').value),
         observation: $('#instObs').value.trim(),
-        is_school_day: $('#instType').value !== 'Festivo'
+        is_school_day: selected !== 'Festivo'
       });
       closeModal();
       await refreshData();
-      toast('Evento institucional guardado.');
+      if (result?.queued) toast('Evento guardado localmente. Se sincronizará cuando haya conexión.');
+      else toast('Evento institucional guardado.');
     });
   }
 

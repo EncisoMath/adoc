@@ -33,10 +33,27 @@
     'Suspensión de clases': 'Suspensión de actividades'
   };
   const PDF_DAY_EVENT_MARKER = '[[ASGGM_EVENT_TYPE:';
+  const PDF_DAY_EVENT_COMPACT_MARKER = '@EV1:';
+  const PDF_DAY_EVENT_CODE_TYPES = Object.freeze({
+    PA: 'Paro o actividad sindical', AR: 'Asamblea o reunión institucional', CO: 'Comisión',
+    JP: 'Jornada pedagógica', FE: 'Festivo', DC: 'Día cívico', DP: 'Día compensatorio',
+    RE: 'Receso escolar', SA: 'Suspensión de actividades', AI: 'Actividad institucional',
+    EL: 'Elecciones', EC: 'Emergencia o calamidad', DI: 'Duelo institucional', OT: 'Otro'
+  });
 
   function pdfDayEventMeta(dayRec) {
     if (!dayRec) return { type: 'Evento institucional', title: '' };
-    const rawTitle = String(dayRec.institutional_title || '');
+    const rawTitle = String(dayRec.institutional_title || '').trim();
+
+    if (rawTitle.startsWith(PDF_DAY_EVENT_COMPACT_MARKER)) {
+      const separator = rawTitle.indexOf('|', PDF_DAY_EVENT_COMPACT_MARKER.length);
+      const code = rawTitle.slice(PDF_DAY_EVENT_COMPACT_MARKER.length, separator > -1 ? separator : undefined).trim();
+      return {
+        type: PDF_DAY_EVENT_CODE_TYPES[code] || 'Otro',
+        title: separator > -1 ? rawTitle.slice(separator + 1).trim() : ''
+      };
+    }
+
     if (rawTitle.startsWith(PDF_DAY_EVENT_MARKER)) {
       const end = rawTitle.indexOf(']]', PDF_DAY_EVENT_MARKER.length);
       if (end > -1) {
@@ -49,11 +66,15 @@
         };
       }
     }
-    const mapped = PDF_LEGACY_DAY_TYPE_MAP[dayRec.institutional_type] || dayRec.institutional_type || 'Otro';
-    if (mapped === 'Otro' && PDF_DAY_EVENT_TYPES.has(rawTitle) && rawTitle !== 'Otro') {
-      return { type: rawTitle, title: '' };
+
+    if (PDF_DAY_EVENT_TYPES.has(rawTitle)) return { type: rawTitle, title: '' };
+    for (const type of PDF_DAY_EVENT_TYPES) {
+      if (rawTitle.startsWith(`${type} | `)) return { type, title: rawTitle.slice(type.length + 3).trim() };
+      if (rawTitle.startsWith(`${type} - `)) return { type, title: rawTitle.slice(type.length + 3).trim() };
     }
-    return { type: mapped, title: rawTitle.trim() };
+
+    const mapped = PDF_LEGACY_DAY_TYPE_MAP[dayRec.institutional_type] || dayRec.institutional_type || 'Otro';
+    return { type: mapped, title: rawTitle };
   }
 
   function pdfDayEventType(dayRec) {
@@ -124,9 +145,9 @@
     const iso = date.toISOString().slice(0, 10);
     const isWeekendDay = date.getDay() === 0 || date.getDay() === 6;
     const eventType = pdfDayEventType(dayRec);
-    const isHoliday = holidaySet.has(iso) || dayRec?.status === 'no_laboral' || eventType === 'Festivo';
-    const isInst = dayRec?.status === 'institucional';
-    if (isInst) return { label: eventType, institutional: true, bg: '#bdd7ee' };
+    const isRegisteredEvent = dayRec?.status === 'institucional' || dayRec?.status === 'no_laboral';
+    const isHoliday = holidaySet.has(iso) || eventType === 'Festivo';
+    if (isRegisteredEvent) return { label: WEEK[date.getDay()], institutional: true, bg: '#bdd7ee' };
     if (isHoliday) return { label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
     if (isWeekendDay) return { label: WEEK[date.getDay()], institutional: false, bg: '#d9d9d9' };
     return { label: WEEK[date.getDay()], institutional: false, bg: '' };
@@ -284,7 +305,7 @@
 
     const head = [[
       'DOCENTE',
-      ...model.dayMeta.map(meta => `${meta.day}\n${WEEK[meta.date.getDay()]}${meta.institutional ? '\n' + String(meta.label || '').slice(0, 8) : ''}`),
+      ...model.dayMeta.map(meta => `${meta.day}\n${WEEK[meta.date.getDay()]}`),
       'RESUMEN',
       'T',
       'OBSERVACION'
@@ -344,7 +365,7 @@
           if (col > 0 && col <= dayCount) {
             const value = record[`d${col}`];
             const meta = model.dayMeta[col - 1];
-            const color = value ? record.alert : meta.bg;
+            const color = value && record.alert ? record.alert : meta.bg;
             const rgb = hexToRgb(color);
             if (rgb) cell.styles.fillColor = rgb;
           }
@@ -421,12 +442,12 @@
         return [
           {
             content: fmtDate(item.day.date),
-            styles: { fontStyle: 'bold', halign: 'center', fillColor: [221, 235, 247] }
+            styles: { fontStyle: 'normal', halign: 'left', fillColor: [221, 235, 247] }
           },
           {
             content: pdfDayEventSummary(item.day),
             colSpan: 3,
-            styles: { fontStyle: 'bold', fillColor: [221, 235, 247], textColor: [17, 17, 17] }
+            styles: { fontStyle: 'normal', halign: 'left', fillColor: [221, 235, 247], textColor: [17, 17, 17] }
           }
         ];
       }

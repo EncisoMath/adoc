@@ -9,6 +9,79 @@
   });
 
   const apiErrors = [];
+  const DAY_EVENT_MARKER = '[[ASGGM_EVENT_TYPE:';
+  const DAY_EVENT_COMPACT_MARKER = '@EV1:';
+  const DAY_EVENT_STORAGE_MAP = Object.freeze({
+    'Paro o actividad sindical': 'Paro',
+    'Asamblea o reunión institucional': 'Asamblea',
+    'Comisión': 'Comisión',
+    'Jornada pedagógica': 'Jornada pedagógica',
+    'Festivo': 'Festivo',
+    'Actividad institucional': 'Actividad institucional'
+  });
+  const DAY_EVENT_TYPE_CODES = Object.freeze({
+    'Paro o actividad sindical': 'PA',
+    'Asamblea o reunión institucional': 'AR',
+    'Comisión': 'CO',
+    'Jornada pedagógica': 'JP',
+    'Festivo': 'FE',
+    'Día cívico': 'DC',
+    'Día compensatorio': 'DP',
+    'Receso escolar': 'RE',
+    'Suspensión de actividades': 'SA',
+    'Actividad institucional': 'AI',
+    'Elecciones': 'EL',
+    'Emergencia o calamidad': 'EC',
+    'Duelo institucional': 'DI',
+    'Otro': 'OT'
+  });
+  const NEW_DAY_EVENT_TYPES = new Set(Object.keys(DAY_EVENT_TYPE_CODES));
+
+  function compatibleDayEventType(type) {
+    return DAY_EVENT_STORAGE_MAP[type] || (type === 'Otro' ? 'Otro' : 'Actividad institucional');
+  }
+
+  function compactDayEventTitle(type, title) {
+    const code = DAY_EVENT_TYPE_CODES[type] || DAY_EVENT_TYPE_CODES.Otro;
+    return `${DAY_EVENT_COMPACT_MARKER}${code}|${String(title || '').trim()}`;
+  }
+
+  function parseLegacyMarkedTitle(title) {
+    if (!title.startsWith(DAY_EVENT_MARKER)) return null;
+    const end = title.indexOf(']]', DAY_EVENT_MARKER.length);
+    if (end < 0) return null;
+    const encodedType = title.slice(DAY_EVENT_MARKER.length, end);
+    let type = '';
+    try { type = decodeURIComponent(encodedType); } catch { type = encodedType; }
+    return { type, title: title.slice(end + 2).trim() };
+  }
+
+  function normalizeDayRecordPayload(day) {
+    const normalized = { ...day };
+    const selectedType = String(normalized.institutional_type || '');
+    const title = String(normalized.institutional_title || '').trim();
+
+    if (title.startsWith(DAY_EVENT_COMPACT_MARKER)) return normalized;
+
+    const legacy = parseLegacyMarkedTitle(title);
+    if (legacy && NEW_DAY_EVENT_TYPES.has(legacy.type)) {
+      normalized.institutional_title = compactDayEventTitle(legacy.type, legacy.title);
+      normalized.institutional_type = compatibleDayEventType(legacy.type);
+      return normalized;
+    }
+
+    if (NEW_DAY_EVENT_TYPES.has(selectedType)) {
+      normalized.institutional_title = compactDayEventTitle(selectedType, title);
+      normalized.institutional_type = compatibleDayEventType(selectedType);
+      return normalized;
+    }
+
+    if (selectedType === 'Otro' && NEW_DAY_EVENT_TYPES.has(title) && title !== 'Otro') {
+      normalized.institutional_title = compactDayEventTitle(title, '');
+      normalized.institutional_type = compatibleDayEventType(title);
+    }
+    return normalized;
+  }
 
   const TABLE_KEYS = [
     'app_settings',
@@ -95,10 +168,11 @@
 
     for (const item of queue) {
       try {
+        const payload = item.table === 'day_records' ? normalizeDayRecordPayload(item.payload) : item.payload;
         let req;
-        if (item.action === 'insert') req = client.from(item.table).insert(item.payload);
-        if (item.action === 'upsert') req = client.from(item.table).upsert(item.payload, { onConflict: item.match || 'id' });
-        if (item.action === 'update') req = client.from(item.table).update(item.payload).match(item.match);
+        if (item.action === 'insert') req = client.from(item.table).insert(payload);
+        if (item.action === 'upsert') req = client.from(item.table).upsert(payload, { onConflict: item.match || 'id' });
+        if (item.action === 'update') req = client.from(item.table).update(payload).match(item.match);
         const { error } = await req;
         if (error) throw error;
         await LocalDB.removeQueue(item.id);
@@ -211,14 +285,15 @@
     },
 
     async saveDayRecord(day) {
+      const normalizedDay = normalizeDayRecordPayload(day);
       const payload = {
-        id: day.id || crypto.randomUUID(),
-        date: day.date,
-        status: day.status,
-        institutional_type: day.institutional_type || null,
-        institutional_title: day.institutional_title || null,
-        observation: day.observation || null,
-        is_school_day: day.is_school_day !== false,
+        id: normalizedDay.id || crypto.randomUUID(),
+        date: normalizedDay.date,
+        status: normalizedDay.status,
+        institutional_type: normalizedDay.institutional_type || null,
+        institutional_title: normalizedDay.institutional_title || null,
+        observation: normalizedDay.observation || null,
+        is_school_day: normalizedDay.is_school_day !== false,
         updated_at: new Date().toISOString()
       };
       return queueOrRun({ table: 'day_records', action: 'upsert', payload, match: 'date' });
