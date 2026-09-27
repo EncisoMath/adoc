@@ -1,0 +1,121 @@
+name: Build 573Renderer DDR WORLD win32
+
+on:
+  push:
+    branches:
+      - build-573renderer-ddrworld
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: source
+
+    steps:
+      - name: Checkout 573Renderer
+        uses: actions/checkout@v4
+        with:
+          repository: Radioo/573Renderer
+          ref: master
+          path: source
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Patch DDR WORLD for MDX-001-2024061300 win32 libraries
+        run: |
+          $p = "src/backend/afp_profiles.cpp"
+          $s = Get-Content $p -Raw
+          $old = @'
+    AfpConfig{
+        .slug = "ddrworld",
+        .avs_dll = "libavs-win64.dll",
+        .afp_dll = "libafp-win64.dll",
+        .afpu_dll = "libafputils-win64.dll",
+        .offsets = kIidx33Offsets,
+'@
+          $new = @'
+    AfpConfig{
+        .slug = "ddrworld",
+        .avs_dll = "libavs-win32.dll",
+        .afp_dll = "libafp-win32.dll",
+        .afpu_dll = "libafputils-win32.dll",
+        .avs_generation = AvsGeneration::Avs2158,
+        .offsets = kIidx33Offsets,
+'@
+          if (-not $s.Contains($old)) { throw "DDR WORLD profile block not found" }
+          Set-Content $p ($s.Replace($old, $new)) -NoNewline
+
+          $p = "src/afp_ddr_test.cpp"
+          $s = Get-Content $p -Raw
+          $s = $s.Replace("libavs-win64.dll", "libavs-win32.dll")
+          $s = $s.Replace("libafp-win64.dll", "libafp-win32.dll")
+          $s = $s.Replace("libafputils-win64.dll", "libafputils-win32.dll")
+          Set-Content $p $s -NoNewline
+
+          $p = "src/afp_ddr_boot.cpp"
+          $s = Get-Content $p -Raw
+          $s = $s.Replace("FAILED to resolve libafp-win64 exports", "FAILED to resolve libafp-win32 exports")
+          Set-Content $p $s -NoNewline
+
+          $p = "src/backend/afp_ddr_backend.cpp"
+          $s = Get-Content $p -Raw
+          $s = $s.Replace("(libafp-win64 / libafputils-win64).", "(libafp-win32 / libafputils-win32).")
+          Set-Content $p $s -NoNewline
+
+          $p = "src/backend/afp_family_backend.cpp"
+          $s = Get-Content $p -Raw
+          $old = @'
+        return FailBoot("Couldn't find avs2-core.dll / afp-core.dll / afp-utils.dll "
+                        "under the selected directory. Expected them in `modules/`.");
+'@
+          $new = @'
+        return FailBoot(std::string("Couldn't find ") + cfg_->avs_dll + " / " + cfg_->afp_dll + " / " +
+                        ((cfg_->afpu_dll != nullptr) ? cfg_->afpu_dll : "(no afp-utils DLL)") +
+                        " under the selected directory. Expected them in `modules/`, `contents/modules/`, or the game root.");
+'@
+          if (-not $s.Contains($old)) { throw "DLL error block not found" }
+          Set-Content $p ($s.Replace($old, $new)) -NoNewline
+
+      - name: Enable MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Bootstrap vcpkg
+        run: .\vendor\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+
+      - name: Configure x86
+        env:
+          VCPKG_DEFAULT_TRIPLET: x86-windows-static
+          VCPKG_FEATURE_FLAGS: manifests
+        run: cmake --preset ci32
+
+      - name: Build x86
+        env:
+          VCPKG_DEFAULT_TRIPLET: x86-windows-static
+          VCPKG_FEATURE_FLAGS: manifests
+        run: cmake --build --preset ci32
+
+      - name: Verify executable
+        run: |
+          $exe = "bin\573Renderer32.exe"
+          if (!(Test-Path $exe)) { throw "$exe was not produced" }
+          $bytes = [System.IO.File]::ReadAllBytes($exe)
+          $peOff = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOff + 4)
+          if ($machine -ne 0x14c) { throw ("Wrong PE machine: 0x{0:x}" -f $machine) }
+          Get-FileHash $exe -Algorithm SHA256
+          Get-Item $exe | Select-Object FullName, Length
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: 573Renderer32-DDRWorld-MDX-001-2024061300
+          path: source/bin/573Renderer32.exe
+          if-no-files-found: error
+          retention-days: 7
