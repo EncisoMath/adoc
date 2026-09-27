@@ -33,8 +33,8 @@ jobs:
           $s = $s.Replace('"libavs-win64.dll"', '"libavs-win32.dll"')
           $s = $s.Replace('"libafp-win64.dll"', '"libafp-win32.dll"')
           $s = $s.Replace('"libafputils-win64.dll"', '"libafputils-win32.dll"')
-          $needle = '.afpu_dll = "libafputils-win32.dll",' + [Environment]::NewLine + '        .offsets = kIidx33Offsets,' + [Environment]::NewLine + '        .scan_arc_containers = true,'
-          $replacement = '.afpu_dll = "libafputils-win32.dll",' + [Environment]::NewLine + '        .avs_generation = AvsGeneration::Avs2158,' + [Environment]::NewLine + '        .offsets = kIidx33Offsets,' + [Environment]::NewLine + '        .scan_arc_containers = true,'
+          $needle = '        .afpu_dll = "libafputils-win32.dll",' + "`n" + '        .offsets = kIidx33Offsets,' + "`n" + '        .scan_arc_containers = true,'
+          $replacement = '        .afpu_dll = "libafputils-win32.dll",' + "`n" + '        .avs_generation = AvsGeneration::Avs2158,' + "`n" + '        .offsets = kIidx33Offsets,' + "`n" + '        .scan_arc_containers = true,'
           if (-not $s.Contains($needle)) { throw "DDR WORLD profile signature not found" }
           $s = $s.Replace($needle, $replacement)
           Set-Content $p $s -NoNewline
