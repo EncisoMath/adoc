@@ -30,25 +30,14 @@ jobs:
         run: |
           $p = "src/backend/afp_profiles.cpp"
           $s = Get-Content $p -Raw
-          $old = @'
-    AfpConfig{
-        .slug = "ddrworld",
-        .avs_dll = "libavs-win64.dll",
-        .afp_dll = "libafp-win64.dll",
-        .afpu_dll = "libafputils-win64.dll",
-        .offsets = kIidx33Offsets,
-'@
-          $new = @'
-    AfpConfig{
-        .slug = "ddrworld",
-        .avs_dll = "libavs-win32.dll",
-        .afp_dll = "libafp-win32.dll",
-        .afpu_dll = "libafputils-win32.dll",
-        .avs_generation = AvsGeneration::Avs2158,
-        .offsets = kIidx33Offsets,
-'@
-          if (-not $s.Contains($old)) { throw "DDR WORLD profile block not found" }
-          Set-Content $p ($s.Replace($old, $new)) -NoNewline
+          $s = $s.Replace('"libavs-win64.dll"', '"libavs-win32.dll"')
+          $s = $s.Replace('"libafp-win64.dll"', '"libafp-win32.dll"')
+          $s = $s.Replace('"libafputils-win64.dll"', '"libafputils-win32.dll"')
+          $needle = '.afpu_dll = "libafputils-win32.dll",' + [Environment]::NewLine + '        .offsets = kIidx33Offsets,' + [Environment]::NewLine + '        .scan_arc_containers = true,'
+          $replacement = '.afpu_dll = "libafputils-win32.dll",' + [Environment]::NewLine + '        .avs_generation = AvsGeneration::Avs2158,' + [Environment]::NewLine + '        .offsets = kIidx33Offsets,' + [Environment]::NewLine + '        .scan_arc_containers = true,'
+          if (-not $s.Contains($needle)) { throw "DDR WORLD profile signature not found" }
+          $s = $s.Replace($needle, $replacement)
+          Set-Content $p $s -NoNewline
 
           $p = "src/afp_ddr_test.cpp"
           $s = Get-Content $p -Raw
@@ -67,19 +56,7 @@ jobs:
           $s = $s.Replace("(libafp-win64 / libafputils-win64).", "(libafp-win32 / libafputils-win32).")
           Set-Content $p $s -NoNewline
 
-          $p = "src/backend/afp_family_backend.cpp"
-          $s = Get-Content $p -Raw
-          $old = @'
-        return FailBoot("Couldn't find avs2-core.dll / afp-core.dll / afp-utils.dll "
-                        "under the selected directory. Expected them in `modules/`.");
-'@
-          $new = @'
-        return FailBoot(std::string("Couldn't find ") + cfg_->avs_dll + " / " + cfg_->afp_dll + " / " +
-                        ((cfg_->afpu_dll != nullptr) ? cfg_->afpu_dll : "(no afp-utils DLL)") +
-                        " under the selected directory. Expected them in `modules/`, `contents/modules/`, or the game root.");
-'@
-          if (-not $s.Contains($old)) { throw "DLL error block not found" }
-          Set-Content $p ($s.Replace($old, $new)) -NoNewline
+          Select-String -Path "src/backend/afp_profiles.cpp" -Pattern "ddrworld|libavs-win32|libafp-win32|libafputils-win32|Avs2158"
 
       - name: Enable MSVC x86
         uses: ilammy/msvc-dev-cmd@v1
